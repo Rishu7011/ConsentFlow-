@@ -2,8 +2,8 @@
 main.py — FastAPI application entry point.
 
 Lifespan:
-  - Startup:  create asyncpg pool + Redis client, run DB migrations
-  - Shutdown: gracefully close both connections
+  - Startup:  create asyncpg pool + Redis client + Kafka producer, run DB migrations
+  - Shutdown: gracefully close Kafka producer, Redis client, DB pool (reverse order)
 """
 from __future__ import annotations
 
@@ -22,8 +22,13 @@ from consentflow.app.cache import (
 )
 from consentflow.app.config import settings
 from consentflow.app.db import check_postgres, close_pool, create_pool
+from consentflow.app.kafka_producer import (
+    close_kafka_producer,
+    create_kafka_producer,
+)
 from consentflow.app.models import HealthResponse
 from consentflow.app.routers import consent as consent_router
+from consentflow.app.routers import webhook as webhook_router
 
 # ── Logging ────────────────────────────────────────────────────────────────────
 
@@ -42,17 +47,24 @@ MIGRATIONS_DIR = pathlib.Path(__file__).parent.parent / "migrations"
 async def lifespan(app: FastAPI) -> AsyncIterator[None]:
     """
     FastAPI lifespan context manager.
-    Sets up the DB pool and Redis client, runs SQL migrations on startup,
-    then tears everything down on shutdown.
+
+    Startup order:
+        1. PostgreSQL pool + migrations
+        2. Redis client
+        3. Kafka producer
+
+    Shutdown order (reverse of startup):
+        3. Kafka producer
+        2. Redis client
+        1. PostgreSQL pool
     """
     # ── Startup ──────────────────────────────────────────────────────────────
     logger.info("Starting ConsentFlow (env=%s)", settings.app_env)
 
-    # PostgreSQL
+    # 1. PostgreSQL
     pool = await create_pool()
     app.state.db_pool = pool
 
-    # Run migrations in order
     migration_files = sorted(MIGRATIONS_DIR.glob("*.sql"))
     async with pool.acquire() as conn:
         for migration in migration_files:
@@ -60,15 +72,20 @@ async def lifespan(app: FastAPI) -> AsyncIterator[None]:
             sql = migration.read_text(encoding="utf-8")
             await conn.execute(sql)
 
-    # Redis
+    # 2. Redis
     redis_client = await create_redis_client()
     app.state.redis_client = redis_client
+
+    # 3. Kafka producer
+    kafka_producer = await create_kafka_producer()
+    app.state.kafka_producer = kafka_producer
 
     logger.info("ConsentFlow startup complete ✓")
     yield
 
     # ── Shutdown ─────────────────────────────────────────────────────────────
     logger.info("Shutting down ConsentFlow…")
+    await close_kafka_producer(app.state.kafka_producer)
     await close_redis_client(app.state.redis_client)
     await close_pool(app.state.db_pool)
     logger.info("ConsentFlow shutdown complete ✓")
@@ -82,9 +99,9 @@ def create_app() -> FastAPI:
         description=(
             "Consent-enforcement middleware for AI pipelines. "
             "Provides a foundational data layer and REST API for managing "
-            "user consent records."
+            "user consent records, with real-time revocation propagation via Kafka."
         ),
-        version="0.1.0",
+        version="0.2.0",
         lifespan=lifespan,
         docs_url="/docs",
         redoc_url="/redoc",
@@ -92,6 +109,7 @@ def create_app() -> FastAPI:
 
     # ── Routers ───────────────────────────────────────────────────────────────
     app.include_router(consent_router.router)
+    app.include_router(webhook_router.router)  # prefix="/webhook"
 
     # ── Health endpoint ───────────────────────────────────────────────────────
     @app.get(

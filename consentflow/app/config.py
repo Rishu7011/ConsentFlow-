@@ -28,6 +28,13 @@ class Settings(BaseSettings):
     # Cache TTL (seconds)
     consent_cache_ttl: int = 60
 
+    # ── Kafka ──────────────────────────────────────────────────────────────────
+    # Internal broker address used by the app container (kafka:9092).
+    # For local dev outside Docker use localhost:29092.
+    kafka_broker_url: str = "localhost:29092"
+    # Topic where consent-revocation events are published.
+    kafka_topic_revoke: str = "consent.revoked"
+
     @property
     def postgres_dsn(self) -> str:
         return (

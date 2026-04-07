@@ -36,6 +36,63 @@ services:
     networks:
       - consentflow-net
 
+  # ── Zookeeper ─────────────────────────────────────────────────────────────────
+  zookeeper:
+    image: confluentinc/cp-zookeeper:7.6.0
+    container_name: consentflow-zookeeper
+    restart: unless-stopped
+    environment:
+      ZOOKEEPER_CLIENT_PORT: 2181
+      ZOOKEEPER_TICK_TIME: 2000
+    ports:
+      - "2181:2181"
+    healthcheck:
+      # cub (Confluent Utility Belt) ships in every cp-zookeeper image.
+      # It blocks until ZK is accepting connections on 2181, then exits 0.
+      test: ["CMD", "bash", "-c", "cub zk-ready localhost:2181 5"]
+      interval: 10s
+      timeout: 10s
+      retries: 10
+      start_period: 15s
+    networks:
+      - consentflow-net
+
+  # ── Kafka ─────────────────────────────────────────────────────────────────────
+  kafka:
+    image: confluentinc/cp-kafka:7.6.0
+    container_name: consentflow-kafka
+    restart: unless-stopped
+    depends_on:
+      zookeeper:
+        condition: service_healthy
+    environment:
+      KAFKA_BROKER_ID: 1
+      KAFKA_ZOOKEEPER_CONNECT: zookeeper:2181
+      # Two listeners:
+      #   PLAINTEXT      → internal (container-to-container) on 9092
+      #   PLAINTEXT_HOST → external (host machine) on 29092
+      KAFKA_LISTENER_SECURITY_PROTOCOL_MAP: PLAINTEXT:PLAINTEXT,PLAINTEXT_HOST:PLAINTEXT
+      KAFKA_ADVERTISED_LISTENERS: PLAINTEXT://kafka:9092,PLAINTEXT_HOST://localhost:29092
+      KAFKA_LISTENERS: PLAINTEXT://0.0.0.0:9092,PLAINTEXT_HOST://0.0.0.0:29092
+      KAFKA_INTER_BROKER_LISTENER_NAME: PLAINTEXT
+      KAFKA_OFFSETS_TOPIC_REPLICATION_FACTOR: 1
+      KAFKA_GROUP_INITIAL_REBALANCE_DELAY_MS: 0
+      KAFKA_AUTO_CREATE_TOPICS_ENABLE: "true"
+      # Pre-create the consent.revoked topic at startup
+      KAFKA_CREATE_TOPICS: "consent.revoked:1:1"
+    ports:
+      - "9092:9092"
+      - "29092:29092"
+    healthcheck:
+      # cub kafka-ready waits until at least 1 broker is reachable.
+      test: ["CMD", "bash", "-c", "cub kafka-ready -b localhost:9092 1 10"]
+      interval: 15s
+      timeout: 15s
+      retries: 10
+      start_period: 30s
+    networks:
+      - consentflow-net
+
   # ── ConsentFlow API ───────────────────────────────────────────────────────────
   app:
     build:
@@ -48,6 +105,8 @@ services:
         condition: service_healthy
       redis:
         condition: service_healthy
+      kafka:
+        condition: service_healthy
     environment:
       POSTGRES_HOST: postgres
       POSTGRES_PORT: 5432
@@ -58,6 +117,9 @@ services:
       REDIS_PORT: 6379
       APP_ENV: ${APP_ENV:-production}
       LOG_LEVEL: ${LOG_LEVEL:-INFO}
+      # ── Kafka (internal broker address for container-to-container traffic) ──
+      KAFKA_BROKER_URL: kafka:9092
+      KAFKA_TOPIC_REVOKE: ${KAFKA_TOPIC_REVOKE:-consent.revoked}
     ports:
       - "8000:8000"
     healthcheck:
