@@ -19,6 +19,15 @@ dependencies = [
     # Kafka async client — added with:
     #   uv add "aiokafka>=0.11.0"
     "aiokafka>=0.11.0",
+    # ── Step 3: Dataset Gate ───────────────────────────────────────────────────
+    # PII detection & anonymisation
+    "presidio-analyzer>=2.2.0",
+    "presidio-anonymizer>=2.2.0",
+    # spaCy NLP model download is handled separately:
+    #   python -m spacy download en_core_web_lg
+    "spacy>=3.7.0",
+    # ML experiment tracking
+    "mlflow>=2.13.0",
 ]
 
 [dependency-groups]

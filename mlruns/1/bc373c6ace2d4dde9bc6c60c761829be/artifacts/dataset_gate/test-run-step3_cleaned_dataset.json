@@ -1,0 +1,42 @@
+[
+  {
+    "user_id": "bfc43b9f-3ad4-4192-b764-d90cb3b7383e",
+    "name": "Alice Johnson",
+    "email": "alice@example.com",
+    "phone": "+1-202-555-0147",
+    "diagnosis": "Type 2 diabetes",
+    "score": 0.87
+  },
+  {
+    "user_id": "7ea6b32d-3bfe-404b-8b86-fd46c1c35f5f",
+    "name": "<REDACTED>",
+    "email": "<REDACTED>",
+    "phone": "<REDACTED>",
+    "diagnosis": "Hypertension",
+    "score": 0.62
+  },
+  {
+    "user_id": "cc6e0748-2b2b-4e38-8191-d77701f612ac",
+    "name": "Carol Davis",
+    "email": "carol@example.com",
+    "phone": "+1-800-555-1234",
+    "diagnosis": "Asthma",
+    "score": 0.91
+  },
+  {
+    "user_id": "2e40a842-d0c8-4fd9-<REDACTED>-<REDACTED>d02",
+    "name": "<REDACTED>",
+    "email": "<REDACTED>",
+    "phone": "<REDACTED>",
+    "diagnosis": "Migraine",
+    "score": 0.74
+  },
+  {
+    "user_id": "b5cacda3-bda5-41ca-b931-0e19e10a6220",
+    "name": "Eve Martinez",
+    "email": "eve@example.com",
+    "phone": "+1-415-555-7890",
+    "diagnosis": "Insomnia",
+    "score": 0.55
+  }
+]
