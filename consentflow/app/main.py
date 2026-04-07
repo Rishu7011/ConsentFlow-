@@ -29,6 +29,8 @@ from consentflow.app.kafka_producer import (
 from consentflow.app.models import HealthResponse
 from consentflow.app.routers import consent as consent_router
 from consentflow.app.routers import webhook as webhook_router
+from consentflow.app.routers import infer as infer_router
+from consentflow.inference_gate import ConsentMiddleware
 
 # ── Logging ────────────────────────────────────────────────────────────────────
 
@@ -107,9 +109,17 @@ def create_app() -> FastAPI:
         redoc_url="/redoc",
     )
 
+    # ── Middlewares ───────────────────────────────────────────────────────────
+    app.add_middleware(
+        ConsentMiddleware,
+        protected_prefixes=["/infer"],
+        purpose="inference",
+    )
+
     # ── Routers ───────────────────────────────────────────────────────────────
     app.include_router(consent_router.router)
     app.include_router(webhook_router.router)  # prefix="/webhook"
+    app.include_router(infer_router.router)
 
     # ── Health endpoint ───────────────────────────────────────────────────────
     @app.get(

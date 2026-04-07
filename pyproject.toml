@@ -27,7 +27,8 @@ dependencies = [
     #   python -m spacy download en_core_web_lg
     "spacy>=3.7.0",
     # ML experiment tracking
-    "mlflow>=2.13.0",
+    # ─ Step 4: Inference Gate ──────────────────────────────────────────────────
+    "langchain-core>=0.2.0",
 ]
 
 [dependency-groups]
