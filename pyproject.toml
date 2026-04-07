@@ -26,9 +26,13 @@ dependencies = [
     # spaCy NLP model download is handled separately:
     #   python -m spacy download en_core_web_lg
     "spacy>=3.7.0",
-    # ML experiment tracking
-    # ─ Step 4: Inference Gate ──────────────────────────────────────────────────
+    # ML experiment tracking (used by dataset_gate + training_gate)
+    "mlflow>=2.13.0",
+    # ── Step 4: Inference Gate ─────────────────────────────────────────────────
     "langchain-core>=0.2.0",
+    # ── Step 5: Training Gate ──────────────────────────────────────────────────
+    # No additional runtime deps: mlflow + aiokafka already declared above.
+    # Tests use pytest + unittest.mock (stdlib) — no extra test deps needed.
 ]
 
 [dependency-groups]
