@@ -75,3 +75,29 @@ class HealthResponse(BaseModel):
     status: str = "ok"
     postgres: str
     redis: str
+
+
+# ── Step 7: Audit log models ───────────────────────────────────────────────────
+
+
+class AuditLogEntry(BaseModel):
+    """A single row from the audit_log table."""
+
+    id: UUID
+    event_time: datetime
+    user_id: str
+    gate_name: str
+    action_taken: str
+    consent_status: str
+    purpose: str | None = None
+    metadata: dict | None = None
+    trace_id: str | None = None
+
+    model_config = {"from_attributes": True}
+
+
+class AuditTrailResponse(BaseModel):
+    """Response envelope for GET /audit/trail."""
+
+    entries: list[AuditLogEntry]
+    total: int

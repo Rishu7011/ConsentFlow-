@@ -35,6 +35,13 @@ class Settings(BaseSettings):
     # Topic where consent-revocation events are published.
     kafka_topic_revoke: str = "consent.revoked"
 
+    # ── Step 7: OpenTelemetry ──────────────────────────────────────────────────
+    # Set otel_enabled=true in docker-compose env to activate OTLP export.
+    # Defaults to False so existing tests never need a running OTel collector.
+    otel_enabled: bool = False
+    otel_endpoint: str = "http://localhost:4317"  # OTLP gRPC
+    otel_service_name: str = "consentflow"
+
     @property
     def postgres_dsn(self) -> str:
         return (

@@ -30,6 +30,7 @@ from consentflow.app.models import HealthResponse
 from consentflow.app.routers import consent as consent_router
 from consentflow.app.routers import webhook as webhook_router
 from consentflow.app.routers import infer as infer_router
+from consentflow.app.routers import audit as audit_router
 from consentflow.inference_gate import ConsentMiddleware
 
 # ── Logging ────────────────────────────────────────────────────────────────────
@@ -62,6 +63,11 @@ async def lifespan(app: FastAPI) -> AsyncIterator[None]:
     """
     # ── Startup ──────────────────────────────────────────────────────────────
     logger.info("Starting ConsentFlow (env=%s)", settings.app_env)
+
+    # 0. OpenTelemetry (optional — skipped in tests / when otel_enabled=False)
+    if settings.otel_enabled:
+        from consentflow.telemetry import configure_otel  # noqa: PLC0415
+        configure_otel(settings.otel_endpoint, settings.otel_service_name)
 
     # 1. PostgreSQL
     pool = await create_pool()
@@ -120,6 +126,7 @@ def create_app() -> FastAPI:
     app.include_router(consent_router.router)
     app.include_router(webhook_router.router)  # prefix="/webhook"
     app.include_router(infer_router.router)
+    app.include_router(audit_router.router)   # prefix="/audit" (Step 7)
 
     # ── Health endpoint ───────────────────────────────────────────────────────
     @app.get(

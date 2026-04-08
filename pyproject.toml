@@ -36,6 +36,10 @@ dependencies = [
     # ── Step 6: Drift Monitor ──────────────────────────────────────────────────────
     # Evidently AI — consent-aware drift reporting.
     "evidently>=0.4.0",
+    # ── Step 7: Observability Dashboard ───────────────────────────────────────────
+    # OpenTelemetry SDK + OTLP gRPC exporter for trace instrumentation.
+    "opentelemetry-sdk>=1.24.0",
+    "opentelemetry-exporter-otlp-proto-grpc>=1.24.0",
 ]
 
 [dependency-groups]
