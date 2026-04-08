@@ -144,12 +144,6 @@ services:
       - "4318:4318"   # OTLP HTTP
       - "8889:8889"   # Prometheus metrics scrape endpoint
       - "13133:13133" # Health check
-    healthcheck:
-      test: ["CMD", "wget", "--quiet", "--tries=1", "--spider", "http://localhost:13133/"]
-      interval: 10s
-      timeout: 5s
-      retries: 5
-      start_period: 10s
     networks:
       - consentflow-net
 
@@ -159,8 +153,7 @@ services:
     container_name: consentflow-grafana
     restart: unless-stopped
     depends_on:
-      otel-collector:
-        condition: service_healthy
+      - otel-collector
     environment:
       # Anonymous access in dev — no login required
       GF_AUTH_ANONYMOUS_ENABLED: "true"
