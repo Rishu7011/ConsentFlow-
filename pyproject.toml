@@ -33,6 +33,9 @@ dependencies = [
     # ── Step 5: Training Gate ──────────────────────────────────────────────────
     # No additional runtime deps: mlflow + aiokafka already declared above.
     # Tests use pytest + unittest.mock (stdlib) — no extra test deps needed.
+    # ── Step 6: Drift Monitor ──────────────────────────────────────────────────────
+    # Evidently AI — consent-aware drift reporting.
+    "evidently>=0.4.0",
 ]
 
 [dependency-groups]
