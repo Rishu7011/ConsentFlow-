@@ -86,3 +86,21 @@ dataset_gate/
 
 
 fileexplain.md
+
+# Node modules
+node_modules/
+npm-debug.log
+yarn-error.log
+package-lock.json
+pnpm-lock.yaml
+
+# Next.js / React
+.next/
+out/
+.swc/
+
+# Vercel
+.vercel/
+
+# TypeScript
+*.tsbuildinfo

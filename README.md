@@ -243,10 +243,12 @@ Expected response:
 | Service | URL |
 |---------|-----|
 | API (Swagger docs) | http://localhost:8000/docs |
+| API (ReDoc docs) | http://localhost:8000/redoc |
 | Grafana dashboard | http://localhost:3000 |
 | OTel Collector health | http://localhost:13133 |
 | Prometheus metrics | http://localhost:8889/metrics |
 | Kafka (external) | localhost:29092 |
+| Kafka (internal, Docker) | kafka:9092 (container-to-container only) |
 
 ---
 
@@ -317,7 +319,7 @@ curl "http://localhost:8000/audit/trail?user_id=550e8400-e29b-41d4-a716-44665544
 | `CONSENT_CACHE_TTL` | Redis TTL in seconds for consent cache entries | `60` | Yes |
 | `KAFKA_BROKER_URL` | Kafka bootstrap server | `localhost:29092` (`kafka:9092` in Docker) | Yes |
 | `KAFKA_TOPIC_REVOKE` | Revocation topic name | `consent.revoked` | Yes |
-| `OTEL_ENABLED` | Enable OTel SDK/exporter setup | `false` | No |
+| `OTEL_ENABLED` | Enable OTel SDK/exporter setup | `false` (disabled by default; set `true` in Docker env) | No |
 | `OTEL_ENDPOINT` | OTLP gRPC endpoint | `http://localhost:4317` | No |
 | `OTEL_SERVICE_NAME` | Service name in OTel resource attributes | `consentflow` | No |
 
@@ -333,11 +335,20 @@ Liveness/health probe for Postgres + Redis.
 curl http://localhost:8000/health
 ```
 
-**Response `200`:**
+**Response `200` (healthy):**
 ```json
 {
   "status": "ok",
   "postgres": "ok",
+  "redis": "ok"
+}
+```
+
+**Response `200` (degraded — one or more services down):**
+```json
+{
+  "status": "degraded",
+  "postgres": "error: connection refused",
   "redis": "ok"
 }
 ```
@@ -380,7 +391,7 @@ curl -X POST http://localhost:8000/consent \
 }
 ```
 
-**Errors:** `404` user not found · `422` validation error · `500` database error
+**Errors:** `404` user not found · `422` validation error (missing/malformed fields, Pydantic) · `500` database error
 
 ---
 
@@ -395,6 +406,18 @@ curl -X POST http://localhost:8000/consent/revoke \
     "user_id":"550e8400-e29b-41d4-a716-446655440000",
     "purpose":"analytics"
   }'
+```
+
+**Response `200`:**
+```json
+{
+  "id": "...",
+  "user_id": "550e8400-e29b-41d4-a716-446655440000",
+  "data_type": "pii",
+  "purpose": "analytics",
+  "status": "revoked",
+  "updated_at": "2026-04-08T12:00:00Z"
+}
 ```
 
 **Errors:** `404` no matching records · `422` validation error
@@ -427,6 +450,8 @@ curl http://localhost:8000/consent/550e8400-e29b-41d4-a716-446655440000/analytic
 ### `POST /webhook/consent-revoke`
 
 OneTrust-style webhook ingress. On receipt: upserts the revocation in Postgres, invalidates the Redis cache key, and publishes a `consent.revoked` event to Kafka.
+
+> **Idempotency:** Duplicate webhooks for the same `user+purpose` are safe. The DB upsert uses `INSERT … ON CONFLICT`, so re-delivery never causes errors or duplicate records.
 
 ```bash
 curl -X POST http://localhost:8000/webhook/consent-revoke \
@@ -461,7 +486,7 @@ curl -X POST http://localhost:8000/webhook/consent-revoke \
 }
 ```
 
-**Errors:** `207` partial success · `422` non-revoked status or malformed UUID · `500` DB error
+**Errors:** `207` partial success · `422` non-revoked status, malformed UUID, or missing/malformed fields (Pydantic validation) · `500` DB error
 
 ---
 
@@ -481,10 +506,10 @@ curl -X POST http://localhost:8000/infer/predict \
 **Response `200`:**
 ```json
 {
-  "status": "ok",
-  "message": "Inference served",
+  "status": "success",
+  "message": "Inference completed safely.",
   "user_id": "550e8400-e29b-41d4-a716-446655440000",
-  "prediction": "..."
+  "prediction": "dummy_output"
 }
 ```
 
@@ -498,7 +523,7 @@ curl -X POST http://localhost:8000/infer/predict \
 
 ### `GET /audit/trail`
 
-Query consent enforcement audit rows with optional filters.
+Query consent enforcement audit rows with optional filters. Results are ordered **newest-first** (`event_time DESC`).
 
 **Query parameters:**
 
@@ -533,6 +558,8 @@ curl "http://localhost:8000/audit/trail?user_id=550e8400-e29b-41d4-a716-44665544
 }
 ```
 
+Valid `action_taken` values logged by the gates: `passed` · `blocked` · `quarantined` · `alerted` · `anonymized`
+
 ---
 
 ## Consent enforcement pipeline
@@ -555,6 +582,12 @@ Enforces consent before a dataset is registered in MLflow.
 ### 2. Training gate (`training_gate.py` + `otel_training_gate.py`)
 
 Kafka consumer that quarantines MLflow training runs when consent is revoked.
+
+> **Note:** The training gate runs as a **standalone consumer process**, separate from the FastAPI app server. Run it with:
+> ```bash
+> python -m consentflow.training_gate
+> ```
+> Or call `run_training_gate_consumer()` from your own application startup code.
 
 **Flow:**
 1. Consume events from `consent.revoked` topic.
