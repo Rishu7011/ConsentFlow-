@@ -395,10 +395,10 @@ Pool is stored on `app.state.db_pool` and accessed via `request.app.state`.
 | `ConsentStatus` | All | Enum: `granted` / `revoked` |
 | `ConsentUpsertRequest` | `POST /consent` | `user_id`, `data_type`, `purpose`, `status` |
 | `ConsentRevokeRequest` | `POST /consent/revoke` | `user_id`, `purpose` |
-| `UserCreateRequest` | Utility | `email: EmailStr` |
+| `UserCreateRequest` | `POST /users` | `email: EmailStr` |
 | `ConsentRecord` | `POST /consent`, `POST /consent/revoke` | Full upserted record |
 | `ConsentStatusResponse` | `GET /consent/{user_id}/{purpose}` | Includes `cached: bool` |
-| `UserRecord` | Utility | `id`, `email`, `created_at` |
+| `UserRecord` | `POST /users`, `GET /users/{user_id}` | `id`, `email`, `created_at` |
 | `HealthResponse` | `GET /health` | `status`, `postgres`, `redis` |
 | `AuditLogEntry` | `GET /audit/trail` | Full audit row; `metadata: dict \| None` |
 | `AuditTrailResponse` | `GET /audit/trail` | `entries: list[AuditLogEntry]`, `total: int` |
@@ -419,7 +419,7 @@ Pool is stored on `app.state.db_pool` and accessed via `request.app.state`.
 
 **`create_app()` registers:**
 - `ConsentMiddleware` on `/infer` prefix with purpose `"inference"`
-- Routers: `consent`, `webhook`, `infer`, `audit`
+- Routers: `users`, `consent`, `webhook`, `infer`, `audit`
 - `GET /health` endpoint returning `HealthResponse` (`"ok"` or `"degraded"`)
 
 App metadata: title `ConsentFlow`, version `0.2.0`, Swagger at `/docs`, ReDoc at `/redoc`.
@@ -430,6 +430,16 @@ App metadata: title `ConsentFlow`, version `0.2.0`, Swagger at `/docs`, ReDoc at
 
 ### `consentflow/app/routers/__init__.py`
 Package marker.
+
+### `consentflow/app/routers/users.py`
+**User registration endpoints. Router prefix: `/users`**
+
+| Endpoint | Description |
+|----------|-------------|
+| `POST /users` | Inserts a new row in the `users` table with a server-generated UUID. Returns `UserRecord` (`id`, `email`, `created_at`). Returns `409` if the e-mail is already registered. The returned `id` is the `user_id` required by all consent endpoints. |
+| `GET /users/{user_id}` | Looks up an existing user by UUID. Returns `UserRecord` or `404 Not Found`. |
+
+---
 
 ### `consentflow/app/routers/consent.py`
 **Consent CRUD endpoints. Router prefix: `/consent`**
@@ -510,6 +520,11 @@ Creates:
 - Indexes: `idx_audit_log_user_id`, `idx_audit_log_event_time DESC`, `idx_audit_log_gate_name`
 
 Valid `action_taken` values: `passed` | `blocked` | `quarantined` | `alerted` | `anonymized`
+
+### `consentflow/migrations/003_seed_demo_user.sql`
+**Demo user seed.** Applied automatically at startup after `002_audit_log.sql`.
+
+Inserts the canonical demo user UUID `550e8400-e29b-41d4-a716-446655440000` into the `users` table with email `demo@consentflow.dev`. Uses `ON CONFLICT (id) DO NOTHING` — safe to re-apply on every restart without errors or duplicate rows. Prevents the foreign-key violation that would otherwise occur when calling `POST /consent` straight after a fresh `docker compose up`.
 
 ---
 

@@ -160,6 +160,8 @@ POST /webhook/consent-revoke
 | Method | Endpoint | Description |
 |--------|----------|-------------|
 | `GET`  | `/health` | Liveness check: Postgres + Redis |
+| `POST` | `/users` | Register a new user (returns UUID for consent requests) |
+| `GET`  | `/users/{user_id}` | Look up a user by UUID |
 | `POST` | `/consent` | Upsert a consent record |
 | `POST` | `/consent/revoke` | Revoke all consent for a user + purpose |
 | `GET`  | `/consent/{user_id}/{purpose}` | Resolve effective consent status |
@@ -171,7 +173,17 @@ POST /webhook/consent-revoke
 
 ## 6. Live Demo Flow
 
-Run these 4 steps against a live instance (`docker compose up --build`):
+Run these steps against a live instance (`docker compose up --build`):
+
+> **Tip:** The demo user `550e8400-e29b-41d4-a716-446655440000` is seeded automatically by migration `003`. You can skip step 1 if using that UUID.
+
+**Step 0 — Register a user (needed for any new UUID):**
+```bash
+curl -X POST http://localhost:8000/users \
+  -H "Content-Type: application/json" \
+  -d '{"email": "alice@example.com"}'
+# → 201: { "id": "<uuid>", ... }
+```
 
 **Step 1 — Grant consent:**
 ```bash
@@ -261,7 +273,11 @@ Containerized:  Docker Compose (full stack)
 ConsentFlow-/
 ├── consentflow/
 │   ├── app/                   # FastAPI app, config, DB, Kafka, routers
+│   │   └── routers/           # consent, users, webhook, infer, audit
 │   ├── migrations/            # SQL schema files (auto-applied at startup)
+│   │   ├── 001_init.sql       # users + consent_records schema
+│   │   ├── 002_audit_log.sql  # audit_log schema
+│   │   └── 003_seed_demo_user.sql  # seeds demo UUID (idempotent)
 │   ├── sdk.py                 # Consent lookup: Redis → PostgreSQL
 │   ├── dataset_gate.py        # Gate 1: MLflow dataset anonymization
 │   ├── training_gate.py       # Gate 2: Kafka consumer → MLflow quarantine

@@ -135,7 +135,8 @@ ConsentFlow closes this gap by operating as middleware between consent sources a
 │   │
 │   ├── migrations/
 │   │   ├── 001_init.sql                  # users + consent_records schema
-│   │   └── 002_audit_log.sql             # audit_log schema and indexes
+│   │   ├── 002_audit_log.sql             # audit_log schema and indexes
+│   │   └── 003_seed_demo_user.sql        # idempotent seed of demo user UUID
 │   │
 │   └── app/
 │       ├── __init__.py                   # Package marker
@@ -150,6 +151,7 @@ ConsentFlow closes this gap by operating as middleware between consent sources a
 │           ├── audit.py                  # GET /audit/trail endpoint
 │           ├── consent.py                # /consent CRUD endpoints
 │           ├── infer.py                  # /infer/predict dummy model endpoint
+│           ├── users.py                  # POST /users + GET /users/{id} registration
 │           └── webhook.py                # /webhook/consent-revoke ingress
 │
 ├── grafana/
@@ -220,6 +222,7 @@ Migrations are auto-applied at app startup from `consentflow/migrations/*.sql`. 
 ```bash
 psql -U consentflow -d consentflow -f consentflow/migrations/001_init.sql
 psql -U consentflow -d consentflow -f consentflow/migrations/002_audit_log.sql
+psql -U consentflow -d consentflow -f consentflow/migrations/003_seed_demo_user.sql
 ```
 
 **5. Verify all services are healthy:**
@@ -254,9 +257,20 @@ Expected response:
 
 ## Quick demo
 
-Once the stack is running, here is the full revocation propagation flow in 3 commands:
+Once the stack is running, here is the full revocation propagation flow.
 
-**1. Grant consent:**
+> **Note:** The demo user `550e8400-e29b-41d4-a716-446655440000` is automatically seeded by migration `003_seed_demo_user.sql` — skip step 1 if you are using that UUID.
+
+**1. Register a user (required before any consent record):**
+
+```bash
+curl -X POST http://localhost:8000/users \
+  -H "Content-Type: application/json" \
+  -d '{"email": "alice@example.com"}'
+# Response 201: { "id": "<uuid>", "email": "alice@example.com", "created_at": "..." }
+```
+
+**2. Grant consent (use the `id` returned above, or the seeded demo UUID):**
 
 ```bash
 curl -X POST http://localhost:8000/consent \
@@ -269,7 +283,7 @@ curl -X POST http://localhost:8000/consent \
   }'
 ```
 
-**2. Fire a revocation webhook (simulates an OneTrust signal):**
+**3. Fire a revocation webhook (simulates an OneTrust signal):**
 
 ```bash
 curl -X POST http://localhost:8000/webhook/consent-revoke \
@@ -282,7 +296,7 @@ curl -X POST http://localhost:8000/webhook/consent-revoke \
   }'
 ```
 
-**3. Try inference — it is now blocked:**
+**4. Try inference — it is now blocked:**
 
 ```bash
 curl -X POST http://localhost:8000/infer/predict \
@@ -293,7 +307,7 @@ curl -X POST http://localhost:8000/infer/predict \
 # Response: 403 Forbidden - consent revoked
 ```
 
-**4. Check the audit trail:**
+**5. Check the audit trail:**
 
 ```bash
 curl "http://localhost:8000/audit/trail?user_id=550e8400-e29b-41d4-a716-446655440000"
@@ -326,6 +340,49 @@ curl "http://localhost:8000/audit/trail?user_id=550e8400-e29b-41d4-a716-44665544
 ---
 
 ## API reference
+
+### `POST /users`
+
+Register a new user. Returns a server-generated UUID that must be used as `user_id` in subsequent consent requests.
+
+**Request body:**
+
+| Field | Type | Required | Notes |
+|-------|------|----------|-------|
+| `email` | email string | Yes | Must be unique |
+
+```bash
+curl -X POST http://localhost:8000/users \
+  -H "Content-Type: application/json" \
+  -d '{"email": "alice@example.com"}'
+```
+
+**Response `201`:**
+```json
+{
+  "id": "<uuid>",
+  "email": "alice@example.com",
+  "created_at": "2026-04-10T21:00:00Z"
+}
+```
+
+**Errors:** `409` email already registered · `422` malformed email
+
+---
+
+### `GET /users/{user_id}`
+
+Look up an existing user by UUID.
+
+```bash
+curl http://localhost:8000/users/550e8400-e29b-41d4-a716-446655440000
+```
+
+**Response `200`:** Same shape as `POST /users` response.
+
+**Errors:** `404` user not found · `422` invalid UUID
+
+---
 
 ### `GET /health`
 

@@ -31,6 +31,7 @@ from consentflow.app.routers import consent as consent_router
 from consentflow.app.routers import webhook as webhook_router
 from consentflow.app.routers import infer as infer_router
 from consentflow.app.routers import audit as audit_router
+from consentflow.app.routers import users as users_router
 from consentflow.inference_gate import ConsentMiddleware
 
 # ── Logging ────────────────────────────────────────────────────────────────────
@@ -123,6 +124,7 @@ def create_app() -> FastAPI:
     )
 
     # ── Routers ───────────────────────────────────────────────────────────────
+    app.include_router(users_router.router)    # prefix="/users"
     app.include_router(consent_router.router)
     app.include_router(webhook_router.router)  # prefix="/webhook"
     app.include_router(infer_router.router)
