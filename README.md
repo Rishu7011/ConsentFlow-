@@ -18,6 +18,7 @@
 - [Project structure](#project-structure)
 - [Prerequisites](#prerequisites)
 - [Setup & installation](#setup--installation)
+- [Platform notes (Mac / Apple Silicon)](#platform-notes-mac--apple-silicon)
 - [Quick demo](#quick-demo)
 - [Environment variables](#environment-variables)
 - [API reference](#api-reference)
@@ -188,6 +189,8 @@ ConsentFlow closes this gap by operating as middleware between consent sources a
 | PostgreSQL (optional) | `16` | Only if running without Docker |
 | Redis (optional) | `7` | Only if running without Docker |
 
+> **Mac / Apple Silicon (M1 / M2 / M3) users:** Docker Desktop for Mac supports all required images. However, some Confluent images are x86-only and run via Rosetta 2 emulation — see [Platform notes](#platform-notes-mac--apple-silicon) for a one-line fix.
+
 ---
 
 ## Setup & installation
@@ -202,12 +205,34 @@ cd ConsentFlow-
 **2. Copy and configure environment:**
 
 ```bash
+# macOS / Linux
 cp .env.example .env
+
+# Windows (PowerShell)
+copy .env.example .env
 ```
 
 Edit `.env` with values for your environment. See [Environment variables](#environment-variables) for the full reference.
 
-**3. Start the full stack:**
+**3. (Apple Silicon only) Add platform pin to `docker-compose.yml`:**
+
+If you are on an M1 / M2 / M3 Mac, the Confluent Kafka and Zookeeper images need an explicit platform tag to avoid Rosetta emulation instability. Add `platform: linux/amd64` to both services:
+
+```yaml
+zookeeper:
+  image: confluentinc/cp-zookeeper:7.6.0
+  platform: linux/amd64   # ← add this line
+  ...
+
+kafka:
+  image: confluentinc/cp-kafka:7.6.0
+  platform: linux/amd64   # ← add this line
+  ...
+```
+
+See [Platform notes](#platform-notes-mac--apple-silicon) for full details.
+
+**4. Start the full stack:**
 
 ```bash
 docker compose up --build
@@ -215,7 +240,7 @@ docker compose up --build
 
 This starts: PostgreSQL, Redis, Zookeeper, Kafka, the ConsentFlow API, OTel Collector, and Grafana. All services have health checks — the app waits for Postgres, Redis, and Kafka to be healthy before starting.
 
-**4. Run migrations:**
+**5. Run migrations:**
 
 Migrations are auto-applied at app startup from `consentflow/migrations/*.sql`. For manual execution:
 
@@ -225,7 +250,7 @@ psql -U consentflow -d consentflow -f consentflow/migrations/002_audit_log.sql
 psql -U consentflow -d consentflow -f consentflow/migrations/003_seed_demo_user.sql
 ```
 
-**5. Verify all services are healthy:**
+**6. Verify all services are healthy:**
 
 ```bash
 curl http://localhost:8000/health
@@ -252,6 +277,61 @@ Expected response:
 | Prometheus metrics | http://localhost:8889/metrics |
 | Kafka (external) | localhost:29092 |
 | Kafka (internal, Docker) | kafka:9092 (container-to-container only) |
+
+---
+
+## Platform notes (Mac / Apple Silicon)
+
+The project is Docker-first and works on macOS with **no code changes**. The notes below cover platform-specific gotchas.
+
+### Docker Desktop for Mac
+
+Install [Docker Desktop for Mac](https://www.docker.com/products/docker-desktop/). Make sure you are using **Docker Compose v2** (bundled with Docker Desktop ≥ 4.x) — use `docker compose` (space), not the legacy `docker-compose` (hyphen).
+
+### Apple Silicon (M1 / M2 / M3) — Confluent image fix
+
+The Confluent Platform images (`cp-zookeeper`, `cp-kafka`) are published for `linux/amd64` only. They work on Apple Silicon via Rosetta 2 emulation, but **may fail to start or run slowly** without the explicit platform pin.
+
+Add `platform: linux/amd64` to the `zookeeper` and `kafka` services in `docker-compose.yml`:
+
+```yaml
+zookeeper:
+  image: confluentinc/cp-zookeeper:7.6.0
+  platform: linux/amd64
+  container_name: consentflow-zookeeper
+  ...
+
+kafka:
+  image: confluentinc/cp-kafka:7.6.0
+  platform: linux/amd64
+  container_name: consentflow-kafka
+  ...
+```
+
+All other images (`postgres:16`, `redis:7`, `grafana/grafana`, `otel/opentelemetry-collector-contrib`) ship multi-arch manifests and run natively on Apple Silicon.
+
+### Installing `uv` on Mac (local dev only)
+
+If you want to run the app or tests **outside Docker**, install `uv` first:
+
+```bash
+curl -LsSf https://astral.sh/uv/install.sh | sh
+```
+
+Then install dependencies and the spaCy NLP model:
+
+```bash
+uv sync
+uv run python -m spacy download en_core_web_lg
+```
+
+### Port conflicts on Mac
+
+macOS Monterey and later reserves port `5000` (AirPlay Receiver) and `7000` (AirPlay). ConsentFlow uses `5432`, `6379`, `8000`, `3000`, `29092`, `4317`, `4318`, `8889`, and `13133` — **none of these conflict** with system-reserved Mac ports.
+
+### `curl` on Mac
+
+All `curl` commands in this README work as-is on macOS. Mac ships `curl` by default.
 
 ---
 
