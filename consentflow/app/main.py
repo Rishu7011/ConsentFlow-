@@ -14,6 +14,8 @@ from typing import AsyncIterator
 
 from fastapi import FastAPI, Request
 from fastapi.responses import JSONResponse
+from fastapi.middleware.cors import CORSMiddleware
+
 
 from consentflow.app.cache import (
     check_redis,
@@ -33,6 +35,17 @@ from consentflow.app.routers import infer as infer_router
 from consentflow.app.routers import audit as audit_router
 from consentflow.app.routers import users as users_router
 from consentflow.inference_gate import ConsentMiddleware
+
+
+# ── CORS ───────────────────────────────────────────────────────────────────────
+app.add_middleware(
+    CORSMiddleware,
+    allow_origins=["http://localhost:3000"],
+    allow_credentials=True,
+    allow_methods=["*"],
+    allow_headers=["*"],
+)
+
 
 # ── Logging ────────────────────────────────────────────────────────────────────
 
