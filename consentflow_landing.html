@@ -1,0 +1,412 @@
+
+<style>
+  @import url('https://fonts.googleapis.com/css2?family=DM+Sans:ital,opsz,wght@0,9..40,300;0,9..40,400;0,9..40,500;0,9..40,600;1,9..40,300&family=DM+Serif+Display:ital@0;1&display=swap');
+
+  *{box-sizing:border-box;margin:0;padding:0}
+
+  :root{
+    --bg:#06080f;
+    --surface:rgba(255,255,255,0.045);
+    --border:rgba(255,255,255,0.09);
+    --text:#f0f2f8;
+    --muted:rgba(240,242,248,0.45);
+    --accent:#7c6dfa;
+    --accent2:#3ecfb2;
+    --accent3:#fa6d8a;
+    --font-display:'DM Serif Display',serif;
+    --font-body:'DM Sans',sans-serif;
+  }
+
+  body{
+    background:var(--bg);
+    color:var(--text);
+    font-family:var(--font-body);
+    min-height:100vh;
+    overflow-x:hidden;
+  }
+
+  /* ── mesh background ── */
+  .mesh{
+    position:fixed;inset:0;pointer-events:none;z-index:0;
+    background:
+      radial-gradient(ellipse 70% 60% at 15% 20%, rgba(124,109,250,0.22) 0%, transparent 60%),
+      radial-gradient(ellipse 55% 50% at 85% 10%, rgba(62,207,178,0.15) 0%, transparent 55%),
+      radial-gradient(ellipse 60% 70% at 75% 80%, rgba(250,109,138,0.13) 0%, transparent 55%),
+      radial-gradient(ellipse 80% 40% at 30% 90%, rgba(124,109,250,0.1) 0%, transparent 60%),
+      #06080f;
+  }
+  .mesh::after{
+    content:'';position:absolute;inset:0;
+    background-image:url("data:image/svg+xml,%3Csvg viewBox='0 0 200 200' xmlns='http://www.w3.org/2000/svg'%3E%3Cfilter id='n'%3E%3CfeTurbulence type='fractalNoise' baseFrequency='0.75' numOctaves='4' stitchTiles='stitch'/%3E%3C/filter%3E%3Crect width='100%25' height='100%25' filter='url(%23n)' opacity='1'/%3E%3C/svg%3E");
+    opacity:.03;mix-blend-mode:overlay;
+  }
+
+  /* ── layout ── */
+  .page{position:relative;z-index:1;max-width:1100px;margin:0 auto;padding:0 2rem}
+
+  /* ── nav ── */
+  nav{
+    display:flex;align-items:center;justify-content:space-between;
+    padding:1.5rem 0;border-bottom:1px solid var(--border);
+  }
+  .logo{display:flex;align-items:center;gap:10px;text-decoration:none}
+  .logo-mark{
+    width:32px;height:32px;border-radius:9px;
+    background:linear-gradient(135deg,var(--accent),var(--accent2));
+    display:flex;align-items:center;justify-content:center;
+    font-size:14px;font-weight:600;color:#fff;flex-shrink:0;
+  }
+  .logo-text{font-family:var(--font-body);font-weight:600;font-size:15px;color:var(--text)}
+  .nav-links{display:flex;gap:2rem;list-style:none}
+  .nav-links a{font-size:13px;color:var(--muted);text-decoration:none;transition:color .2s}
+  .nav-links a:hover{color:var(--text)}
+  .nav-cta{
+    font-size:13px;font-weight:500;padding:8px 18px;
+    border-radius:8px;border:1px solid var(--border);
+    background:var(--surface);color:var(--text);
+    text-decoration:none;cursor:pointer;
+    backdrop-filter:blur(8px);transition:border-color .2s,background .2s;
+  }
+  .nav-cta:hover{border-color:rgba(124,109,250,0.5);background:rgba(124,109,250,0.1)}
+
+  /* ── hero ── */
+  .hero{padding:6rem 0 4rem;text-align:center}
+  .hero-badge{
+    display:inline-flex;align-items:center;gap:6px;
+    font-size:12px;font-weight:500;letter-spacing:.04em;
+    padding:5px 14px;border-radius:20px;
+    border:1px solid rgba(124,109,250,0.3);
+    background:rgba(124,109,250,0.08);color:rgba(200,195,255,0.9);
+    margin-bottom:2rem;
+    animation:fadeUp .6s ease both;
+  }
+  .badge-dot{width:6px;height:6px;border-radius:50%;background:var(--accent);animation:pulse 2s ease infinite}
+  @keyframes pulse{0%,100%{opacity:1;transform:scale(1)}50%{opacity:.5;transform:scale(.8)}}
+
+  .hero h1{
+    font-family:var(--font-display);
+    font-size:clamp(3rem,7vw,5.5rem);
+    line-height:1.08;letter-spacing:-.02em;
+    margin-bottom:1.5rem;
+    animation:fadeUp .7s .1s ease both;
+  }
+  .hero h1 em{
+    font-style:italic;
+    background:linear-gradient(100deg,var(--accent),var(--accent2) 50%,var(--accent3));
+    -webkit-background-clip:text;-webkit-text-fill-color:transparent;background-clip:text;
+  }
+  .hero-sub{
+    font-size:clamp(1rem,2vw,1.2rem);color:var(--muted);
+    max-width:560px;margin:0 auto 2.5rem;line-height:1.7;
+    font-weight:300;
+    animation:fadeUp .7s .2s ease both;
+  }
+  .hero-actions{display:flex;gap:12px;justify-content:center;flex-wrap:wrap;animation:fadeUp .7s .3s ease both}
+
+  .btn-primary{
+    font-size:14px;font-weight:500;padding:12px 28px;border-radius:10px;
+    background:linear-gradient(135deg,var(--accent),#5d52d4);
+    color:#fff;border:none;cursor:pointer;text-decoration:none;
+    transition:opacity .2s,transform .15s;display:inline-block;
+  }
+  .btn-primary:hover{opacity:.88;transform:translateY(-1px)}
+  .btn-ghost{
+    font-size:14px;font-weight:400;padding:12px 24px;border-radius:10px;
+    border:1px solid var(--border);background:var(--surface);
+    color:var(--text);cursor:pointer;text-decoration:none;
+    backdrop-filter:blur(8px);transition:border-color .2s;display:inline-block;
+  }
+  .btn-ghost:hover{border-color:rgba(255,255,255,.2)}
+
+  @keyframes fadeUp{from{opacity:0;transform:translateY(18px)}to{opacity:1;transform:translateY(0)}}
+
+  /* ── stats bar ── */
+  .stats{
+    display:flex;gap:0;justify-content:center;
+    border:1px solid var(--border);border-radius:16px;
+    background:var(--surface);backdrop-filter:blur(12px);
+    overflow:hidden;margin:4rem 0;
+    animation:fadeUp .7s .4s ease both;
+  }
+  .stat{
+    flex:1;padding:1.5rem;text-align:center;
+    border-right:1px solid var(--border);
+  }
+  .stat:last-child{border-right:none}
+  .stat-num{font-family:var(--font-display);font-size:2rem;letter-spacing:-.02em;margin-bottom:4px}
+  .stat-num span{background:linear-gradient(135deg,var(--accent),var(--accent2));-webkit-background-clip:text;-webkit-text-fill-color:transparent;background-clip:text}
+  .stat-label{font-size:12px;color:var(--muted)}
+
+  /* ── gates section ── */
+  .section-label{
+    font-size:11px;font-weight:600;letter-spacing:.1em;text-transform:uppercase;
+    color:var(--accent2);margin-bottom:1rem;text-align:center;
+  }
+  .section-title{
+    font-family:var(--font-display);font-size:clamp(2rem,4vw,3rem);
+    text-align:center;letter-spacing:-.02em;margin-bottom:.75rem;line-height:1.15;
+  }
+  .section-sub{font-size:1rem;color:var(--muted);text-align:center;max-width:480px;margin:0 auto 3rem;line-height:1.6;font-weight:300}
+
+  .gates{display:grid;grid-template-columns:repeat(2,1fr);gap:16px;margin-bottom:5rem}
+  .gate-card{
+    border:1px solid var(--border);border-radius:16px;
+    background:var(--surface);backdrop-filter:blur(12px);
+    padding:1.75rem;cursor:default;
+    transition:border-color .25s,transform .2s;
+    position:relative;overflow:hidden;
+  }
+  .gate-card:hover{border-color:rgba(124,109,250,0.35);transform:translateY(-2px)}
+  .gate-card::before{
+    content:'';position:absolute;inset:0;
+    background:radial-gradient(circle at var(--mx,50%) var(--my,50%),rgba(124,109,250,0.08) 0%,transparent 60%);
+    opacity:0;transition:opacity .3s;pointer-events:none;
+  }
+  .gate-card:hover::before{opacity:1}
+  .gate-icon{
+    width:40px;height:40px;border-radius:10px;margin-bottom:1rem;
+    display:flex;align-items:center;justify-content:center;font-size:18px;
+  }
+  .gate-num{font-size:11px;font-weight:600;letter-spacing:.08em;text-transform:uppercase;color:var(--muted);margin-bottom:.4rem}
+  .gate-title{font-size:16px;font-weight:500;margin-bottom:.5rem}
+  .gate-desc{font-size:13px;color:var(--muted);line-height:1.6}
+  .gate-tag{
+    display:inline-block;margin-top:.85rem;font-size:11px;padding:3px 10px;
+    border-radius:20px;border:1px solid var(--border);color:var(--muted);
+  }
+
+  /* ── flow diagram ── */
+  .flow-wrap{
+    border:1px solid var(--border);border-radius:20px;
+    background:var(--surface);backdrop-filter:blur(12px);
+    padding:2.5rem;margin-bottom:5rem;
+  }
+  .flow{display:flex;align-items:center;gap:0;justify-content:center;flex-wrap:wrap}
+  .flow-node{
+    text-align:center;padding:1rem 1.25rem;
+    border:1px solid var(--border);border-radius:12px;
+    background:rgba(255,255,255,0.03);min-width:120px;
+  }
+  .flow-node-icon{font-size:20px;margin-bottom:6px}
+  .flow-node-label{font-size:12px;font-weight:500}
+  .flow-node-sub{font-size:10px;color:var(--muted);margin-top:2px}
+  .flow-arrow{
+    display:flex;flex-direction:column;align-items:center;gap:3px;
+    padding:0 8px;
+  }
+  .flow-line{
+    width:40px;height:1px;
+    background:linear-gradient(90deg,transparent,var(--accent),transparent);
+    position:relative;
+  }
+  .flow-line::after{
+    content:'';position:absolute;right:-4px;top:-4px;
+    border:4px solid transparent;border-left:6px solid var(--accent);
+  }
+  .flow-label{font-size:9px;color:var(--muted);white-space:nowrap}
+  .flow-node.accent{border-color:rgba(124,109,250,0.4);background:rgba(124,109,250,0.08)}
+  .flow-node.success{border-color:rgba(62,207,178,0.4);background:rgba(62,207,178,0.07)}
+  .flow-node.danger{border-color:rgba(250,109,138,0.4);background:rgba(250,109,138,0.07)}
+
+  /* ── tech stack ── */
+  .tech{display:flex;flex-wrap:wrap;gap:8px;justify-content:center;margin-bottom:5rem}
+  .tech-pill{
+    font-size:12px;font-weight:500;padding:6px 14px;border-radius:20px;
+    border:1px solid var(--border);color:var(--muted);
+    background:rgba(255,255,255,0.03);
+    transition:border-color .2s,color .2s;
+  }
+  .tech-pill:hover{border-color:rgba(124,109,250,0.4);color:var(--text)}
+
+  /* ── footer ── */
+  footer{
+    border-top:1px solid var(--border);
+    padding:2rem 0;display:flex;align-items:center;
+    justify-content:space-between;font-size:12px;color:var(--muted);
+  }
+  .footer-badge{
+    font-size:11px;padding:4px 12px;border-radius:20px;
+    background:rgba(62,207,178,0.1);border:1px solid rgba(62,207,178,0.25);
+    color:rgba(62,207,178,0.9);
+  }
+
+  /* ── responsive ── */
+  @media(max-width:640px){
+    .gates{grid-template-columns:1fr}
+    .stats{flex-direction:column}
+    .stat{border-right:none;border-bottom:1px solid var(--border)}
+    .stat:last-child{border-bottom:none}
+    .nav-links{display:none}
+    .flow{gap:4px}
+    .flow-line{width:20px}
+  }
+</style>
+
+<div class="mesh"></div>
+
+<div class="page">
+  <!-- NAV -->
+  <nav>
+    <a href="#" class="logo">
+      <div class="logo-mark">CF</div>
+      <span class="logo-text">ConsentFlow</span>
+    </a>
+    <ul class="nav-links">
+      <li><a href="#">Gates</a></li>
+      <li><a href="#">API Docs</a></li>
+      <li><a href="#">Audit Trail</a></li>
+    </ul>
+    <a href="#" class="nav-cta">View Demo →</a>
+  </nav>
+
+  <!-- HERO -->
+  <div class="hero">
+    <div class="hero-badge">
+      <span class="badge-dot"></span>
+      Hackathon 2026 — AI × Privacy Track
+    </div>
+    <h1>Consent lives<br>at every <em>gate.</em></h1>
+    <p class="hero-sub">ConsentFlow enforces user revocations across your entire AI pipeline — datasets, training runs, inference endpoints, and drift windows. In real time.</p>
+    <div class="hero-actions">
+      <a href="#" class="btn-primary">Live Demo</a>
+      <a href="https://github.com/Rishu7011/ConsentFlow-" class="btn-ghost">View on GitHub ↗</a>
+    </div>
+  </div>
+
+  <!-- STATS -->
+  <div class="stats">
+    <div class="stat">
+      <div class="stat-num"><span>4</span></div>
+      <div class="stat-label">Enforcement gates</div>
+    </div>
+    <div class="stat">
+      <div class="stat-num"><span>&lt;5ms</span></div>
+      <div class="stat-label">Redis cache lookup</div>
+    </div>
+    <div class="stat">
+      <div class="stat-num"><span>Real-time</span></div>
+      <div class="stat-label">Kafka propagation</div>
+    </div>
+    <div class="stat">
+      <div class="stat-num"><span>0</span></div>
+      <div class="stat-label">Consent gaps</div>
+    </div>
+  </div>
+
+  <!-- FLOW -->
+  <div style="margin-bottom:1rem">
+    <div class="section-label">How it works</div>
+    <div class="section-title">One revocation.<br>Every stage blocked.</div>
+    <div class="section-sub">From OneTrust webhook to inference gate — in milliseconds.</div>
+  </div>
+
+  <div class="flow-wrap" style="margin-bottom:2rem">
+    <div class="flow">
+      <div class="flow-node">
+        <div class="flow-node-icon">🔔</div>
+        <div class="flow-node-label">User revokes</div>
+        <div class="flow-node-sub">OneTrust / UI</div>
+      </div>
+      <div class="flow-arrow"><div class="flow-line"></div><div class="flow-label">webhook</div></div>
+      <div class="flow-node accent">
+        <div class="flow-node-icon">⚡</div>
+        <div class="flow-node-label">ConsentFlow</div>
+        <div class="flow-node-sub">DB + Redis + Kafka</div>
+      </div>
+      <div class="flow-arrow"><div class="flow-line"></div><div class="flow-label">Kafka event</div></div>
+      <div class="flow-node">
+        <div class="flow-node-icon">🗃️</div>
+        <div class="flow-node-label">Dataset gate</div>
+        <div class="flow-node-sub">Presidio PII scrub</div>
+      </div>
+      <div class="flow-arrow"><div class="flow-line"></div></div>
+      <div class="flow-node">
+        <div class="flow-node-icon">🧠</div>
+        <div class="flow-node-label">Training gate</div>
+        <div class="flow-node-sub">MLflow quarantine</div>
+      </div>
+      <div class="flow-arrow"><div class="flow-line"></div></div>
+      <div class="flow-node danger">
+        <div class="flow-node-icon">🚫</div>
+        <div class="flow-node-label">Inference gate</div>
+        <div class="flow-node-sub">403 Forbidden</div>
+      </div>
+    </div>
+  </div>
+
+  <!-- GATES -->
+  <div style="margin-bottom:2rem">
+    <div class="section-label">Architecture</div>
+    <div class="section-title">The four gates</div>
+    <div class="section-sub">Every stage of your AI pipeline — enforced.</div>
+  </div>
+
+  <div class="gates">
+    <div class="gate-card">
+      <div class="gate-icon" style="background:rgba(124,109,250,0.12)">🗃️</div>
+      <div class="gate-num">Gate 01</div>
+      <div class="gate-title">Dataset gate</div>
+      <div class="gate-desc">Per-record consent check before MLflow registration. Revoked users' PII is anonymized via Microsoft Presidio before any data lands in your feature store.</div>
+      <span class="gate-tag">Presidio · MLflow artifacts</span>
+    </div>
+    <div class="gate-card">
+      <div class="gate-icon" style="background:rgba(62,207,178,0.1)">🧠</div>
+      <div class="gate-num">Gate 02</div>
+      <div class="gate-title">Training gate</div>
+      <div class="gate-desc">Kafka consumer watches <code style="font-size:11px;opacity:.7">consent.revoked</code>. Any mid-flight MLflow training run touching that user gets tagged <code style="font-size:11px;opacity:.7">quarantined</code> immediately.</div>
+      <span class="gate-tag">Kafka consumer · MLflow tags</span>
+    </div>
+    <div class="gate-card">
+      <div class="gate-icon" style="background:rgba(250,109,138,0.1)">🚫</div>
+      <div class="gate-num">Gate 03</div>
+      <div class="gate-title">Inference gate</div>
+      <div class="gate-desc">ASGI middleware — fail-closed. Missing user → 400. Revoked → 403. Infra failure → 503. Granted users pass through in &lt;5ms via Redis cache hit.</div>
+      <span class="gate-tag">ASGI · Redis · LangChain callback</span>
+    </div>
+    <div class="gate-card">
+      <div class="gate-icon" style="background:rgba(250,180,50,0.1)">📊</div>
+      <div class="gate-num">Gate 04</div>
+      <div class="gate-title">Drift monitor</div>
+      <div class="gate-desc">Tags every sample in Evidently drift windows with consent status. Emits severity-graded alerts — warning below 5 revoked samples, critical above.</div>
+      <span class="gate-tag">Evidently AI · DriftAlert</span>
+    </div>
+  </div>
+
+  <!-- TECH -->
+  <div style="margin-bottom:1.5rem;text-align:center">
+    <div class="section-label">Built with</div>
+  </div>
+  <div class="tech">
+    <span class="tech-pill">FastAPI</span>
+    <span class="tech-pill">PostgreSQL</span>
+    <span class="tech-pill">Redis</span>
+    <span class="tech-pill">Apache Kafka</span>
+    <span class="tech-pill">MLflow</span>
+    <span class="tech-pill">Microsoft Presidio</span>
+    <span class="tech-pill">Evidently AI</span>
+    <span class="tech-pill">OpenTelemetry</span>
+    <span class="tech-pill">Grafana</span>
+    <span class="tech-pill">Docker Compose</span>
+    <span class="tech-pill">asyncpg</span>
+    <span class="tech-pill">aiokafka</span>
+  </div>
+
+  <!-- FOOTER -->
+  <footer>
+    <span>ConsentFlow — MIT License</span>
+    <span class="footer-badge">Hackathon 2026</span>
+    <a href="https://github.com/Rishu7011/ConsentFlow-" style="color:var(--muted);text-decoration:none;font-size:12px">github.com/Rishu7011 ↗</a>
+  </footer>
+</div>
+
+<script>
+document.querySelectorAll('.gate-card').forEach(card=>{
+  card.addEventListener('mousemove',e=>{
+    const r=card.getBoundingClientRect();
+    const x=((e.clientX-r.left)/r.width*100).toFixed(1)+'%';
+    const y=((e.clientY-r.top)/r.height*100).toFixed(1)+'%';
+    card.style.setProperty('--mx',x);
+    card.style.setProperty('--my',y);
+  });
+});
+</script>
