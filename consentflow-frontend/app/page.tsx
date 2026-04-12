@@ -7,6 +7,7 @@ import gsap from 'gsap';
 import { AnimatedBeam } from '@/components/magicui/animated-beam';
 import { UserX, ShieldCheck, Database, Network, Ban, LineChart, AlertTriangle } from 'lucide-react';
 import './css/landing.css';
+import Navbar from '@/components/layout/Navbar';
 
 export default function Home() {
   const flowRef = useRef<HTMLDivElement>(null);
@@ -75,22 +76,7 @@ export default function Home() {
 
         <div className="page">
           {/* NAV */}
-          <motion.nav 
-            initial={{ opacity: 0, y: -20 }} 
-            animate={{ opacity: 1, y: 0 }} 
-            transition={{ duration: 0.5, ease: "easeOut" }}
-          >
-            <Link href="/" className="logo">
-              <div className="logo-mark">CF</div>
-              <span className="logo-text">ConsentFlow</span>
-            </Link>
-            <ul className="nav-links">
-              <li><Link href="#">Gates</Link></li>
-              <li><Link href="/api/docs">API Docs</Link></li>
-              <li><Link href="/audit">Audit Trail</Link></li>
-            </ul>
-            <Link href="/dashboard" className="nav-cta">View Demo →</Link>
-          </motion.nav>
+          <Navbar />
 
           {/* HERO */}
           <motion.div 

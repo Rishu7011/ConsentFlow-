@@ -1,0 +1,111 @@
+/* Import the core dashboard layout to maintain consistency */
+@import '../dashboard/css/dashboard.css';
+
+/* ── Inference Tester Specific Styles ───────────────────── */
+
+.infer-input {
+  width: 100%;
+  padding: 12px 14px;
+  background: rgba(0, 0, 0, 0.2);
+  border: 1px solid var(--border);
+  color: var(--text);
+  border-radius: 8px;
+  font-family: inherit;
+  font-size: 13px;
+  transition: all 0.2s ease;
+  box-shadow: inset 0 2px 4px rgba(0, 0, 0, 0.1);
+}
+
+.infer-input:focus {
+  outline: none;
+  border-color: rgba(124, 109, 250, 0.6);
+  background: rgba(124, 109, 250, 0.03);
+  box-shadow: inset 0 2px 4px rgba(0, 0, 0, 0.1), 0 0 0 2px rgba(124, 109, 250, 0.15);
+}
+
+.infer-input::placeholder {
+  color: var(--muted2);
+}
+
+.infer-textarea {
+  resize: vertical;
+  min-height: 120px;
+  line-height: 1.5;
+}
+
+.infer-label {
+  display: block;
+  font-size: 12px;
+  font-weight: 500;
+  letter-spacing: 0.05em;
+  text-transform: uppercase;
+  color: var(--muted);
+  margin-bottom: 8px;
+}
+
+.result-box {
+  margin-top: 1.5rem;
+  padding: 1.25rem;
+  border-radius: 10px;
+  animation: fadeUp 0.3s ease both;
+}
+
+.result-allowed {
+  background: rgba(62, 207, 178, 0.05);
+  border: 1px solid rgba(62, 207, 178, 0.3);
+}
+
+.result-blocked {
+  background: rgba(250, 109, 138, 0.05);
+  border: 1px solid rgba(250, 109, 138, 0.3);
+}
+
+.result-error {
+  background: rgba(245, 166, 35, 0.05);
+  border: 1px solid rgba(245, 166, 35, 0.3);
+}
+
+.result-title {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  font-weight: 600;
+  font-size: 14px;
+}
+
+.result-allowed .result-title { color: var(--accent2); }
+.result-blocked .result-title { color: var(--accent3); }
+.result-error .result-title { color: var(--amber); }
+
+.prediction-label {
+  margin-top: 14px;
+  font-size: 13px;
+  color: var(--muted);
+  font-weight: 500;
+}
+
+.prediction-text {
+  color: var(--text);
+  font-size: 14px;
+  margin-top: 6px;
+  line-height: 1.6;
+  padding: 12px;
+  background: rgba(0,0,0,0.2);
+  border-radius: 6px;
+  border: 1px solid var(--border);
+}
+
+.blocked-subtext {
+  margin-top: 10px;
+  font-size: 13px;
+  color: var(--muted);
+  line-height: 1.5;
+}
+
+.blocked-subtext code {
+  color: var(--text);
+  background: rgba(255,255,255,0.1);
+  padding: 2px 6px;
+  border-radius: 4px;
+  font-size: 12px;
+}
