@@ -291,16 +291,32 @@ export default function Home() {
               hidden: {}
             }}
           >
-            {['FastAPI', 'PostgreSQL', 'Redis', 'Apache Kafka', 'MLflow', 'Microsoft Presidio', 'Evidently AI', 'OpenTelemetry', 'Grafana', 'Docker Compose', 'asyncpg', 'aiokafka'].map((tech) => (
+            {[
+              { name: 'FastAPI', icon: 'https://imgs.search.brave.com/bntF6Zso0YzhcVWJvRYhdd-WOiWyaTdcRO_p_ME8GzM/rs:fit:860:0:0:0/g:ce/aHR0cHM6Ly9jZG4u/d29ybGR2ZWN0b3Js/b2dvLmNvbS9sb2dv/cy9mYXN0YXBpLTEu/c3Zn' },
+              { name: 'PostgreSQL', icon: 'https://imgs.search.brave.com/SXTc07vWsRbq8PSKqZGmxWKnVHkv6eUenPVMV9n21Lo/rs:fit:860:0:0:0/g:ce/aHR0cHM6Ly91cGxv/YWQud2lraW1lZGlh/Lm9yZy93aWtpcGVk/aWEvY29tbW9ucy90/aHVtYi8yLzI5L1Bv/c3RncmVzcWxfZWxl/cGhhbnQuc3ZnLzI1/MHB4LVBvc3RncmVz/cWxfZWxlcGhhbnQu/c3ZnLnBuZw' },
+              { name: 'Redis', icon: 'https://imgs.search.brave.com/WrNB3wKrgB_GlCyJFtnyFYZ8vF5RNY_Iy7bIyiM5cRs/rs:fit:860:0:0:0/g:ce/aHR0cHM6Ly9pbWcu/aWNvbnM4LmNvbS9l/eHRlcm5hbC10YWwt/cmV2aXZvLXRyaXRv/bmUtdGFsLXJldml2/by8xMjAwL2V4dGVy/bmFsLXJlZGlzLWFu/LWluLW1lbW9yeS1k/YXRhLXN0cnVjdHVy/ZS1wcm9qZWN0LWlt/cGxlbWVudGluZy1h/LWRpc3RyaWJ1dGVk/LWxvZ28tdHJpdG9u/ZS10YWwtcmV2aXZv/LmpwZw' },
+              { name: 'Apache Kafka', icon: 'https://imgs.search.brave.com/ic9KgpkbckRZBbotLC_108aSCy2gZ2KQpGlqTI9ydrc/rs:fit:860:0:0:0/g:ce/aHR0cHM6Ly91cGxv/YWQud2lraW1lZGlh/Lm9yZy93aWtpcGVk/aWEvY29tbW9ucy90/aHVtYi8wLzAxL0Fw/YWNoZV9LYWZrYV9s/b2dvLnN2Zy8yNTBw/eC1BcGFjaGVfS2Fm/a2FfbG9nby5zdmcu/cG5n' },
+              { name: 'MLflow', icon: 'https://imgs.search.brave.com/scwGGRaNmu3D3aaLNKuvGU4ha-ZccPnn-bBm29vHFR0/rs:fit:200:200:1:0/g:ce/aHR0cHM6Ly9hdmF0/YXJzLmdpdGh1YnVz/ZXJjb250ZW50LmNv/bS91LzQ5OTk4MDAy/P3M9MjAwJmFtcDt2/PTQ' },
+              { name: 'Microsoft Presidio', icon: 'https://avatars.githubusercontent.com/u/6154722?s=48&v=4' },
+              { name: 'Evidently AI', icon: 'https://avatars.githubusercontent.com/u/75031056?s=48&v=4' },
+              { name: 'OpenTelemetry', icon: 'https://imgs.search.brave.com/B6uuoH91_31NLMev8Jr-m30uJXAuw4Z-ZxnCphXLrTo/rs:fit:860:0:0:0/g:ce/aHR0cHM6Ly9pbWdz/LnNlYXJjaC5icmF2/ZS5jb20vTk40ZjR3/cnNYV0NZSTVfRTAy/eGt1TWtLUHZ2VkdW/RTljenFHZlFxWGFk/cy9yczpmaXQ6NTAw/OjA6MDowL2c6Y2Uv/YUhSMGNITTZMeTlq/Wkc0dS9ZbkpoYm1S/bVpYUmphQzVwL2J5/OXBaRk00UjAxUU5X/TTQvTDNSb1pXMWxM/MlJoY21zdi9iRzlu/Ynk1emRtY19ZejB4/L1luaHBaRFkwVFhW/d04yRmovZW1WM1Uw/RlpUVmdtZEQweC9O/elF5T1RJMk16STNO/REV5' },
+              { name: 'Grafana', icon: 'https://imgs.search.brave.com/SlAR97mapHHa1CRaVhOhjM3AH-ieRjs_u0vJrnhCdvU/rs:fit:860:0:0:0/g:ce/aHR0cHM6Ly91cGxv/YWQud2lraW1lZGlh/Lm9yZy93aWtpcGVk/aWEvY29tbW9ucy90/aHVtYi9hL2ExL0dy/YWZhbmFfbG9nby5z/dmcvMjUwcHgtR3Jh/ZmFuYV9sb2dvLnN2/Zy5wbmc' },
+              { name: 'Docker Compose', icon: 'https://imgs.search.brave.com/rX1GKPfXE80cDaYfVWjhf39eFItkXMc4lbVK7qf8Ia4/rs:fit:32:32:1:0/g:ce/aHR0cDovL2Zhdmlj/b25zLnNlYXJjaC5i/cmF2ZS5jb20vaWNv/bnMvNjYxZmY4N2Yy/NzVlZDI2YmRmODI2/YzE2NmJlYWQ4YmU3/YTZiMDA0NDhjNDQ4/ODM2Mjg4YzM3ZTgw/OTg1NGYwOC9kb2Nz/LmRvY2tlci5jb20v' },
+              { name: 'asyncpg', icon: 'python' },
+              { name: 'aiokafka', icon: 'python' }
+            ].map((tech) => (
               <motion.span 
-                key={tech} 
-                className="tech-pill"
+                key={tech.name} 
+                className="tech-pill flex items-center gap-2"
                 variants={{
                   hidden: { opacity: 0, scale: 0.8 },
                   visible: { opacity: 1, scale: 1, transition: { duration: 0.4, ease: "backOut" } }
                 }}
               >
-                {tech}
+                {tech.icon && (
+                  <img src={tech.icon.startsWith('http') ? tech.icon : `https://cdn.simpleicons.org/${tech.icon}/white`} alt={tech.name} className={`w-3.5 h-3.5 opacity-70 ${tech.icon.startsWith('http') ? 'rounded-full' : ''}`} />
+                )}
+                {tech.name}
               </motion.span>
             ))}
           </motion.div>
