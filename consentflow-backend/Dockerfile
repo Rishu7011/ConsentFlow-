@@ -16,6 +16,9 @@ WORKDIR /app
 # Copy dependency manifests first for layer caching
 COPY pyproject.toml uv.lock README.md ./
 
+# Increase UV network timeout to prevent timeouts on large packages
+ENV UV_HTTP_TIMEOUT=300
+
 # Install production dependencies only, skipping the project source installation (caching layer)
 RUN uv sync --frozen --no-dev --no-install-project
 
