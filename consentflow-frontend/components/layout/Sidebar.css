@@ -1,0 +1,140 @@
+:root {
+  --bg: #06080f;
+  --bg2: #0c0f1a;
+  --surface: rgba(255,255,255,0.042);
+  --surface2: rgba(255,255,255,0.065);
+  --surface-hover: rgba(255,255,255,0.07);
+  --surface3: rgba(255,255,255,0.09);
+  --border: rgba(255,255,255,0.08);
+  --border2: rgba(255,255,255,0.14);
+  --border-strong: rgba(255,255,255,0.18);
+  --border-focus: rgba(124,109,250,0.6);
+  --text: #f0f2f8;
+  --muted: rgba(240,242,248,0.42);
+  --muted2: rgba(240,242,248,0.25);
+  --accent: #7c6dfa;
+  --accent-dim: rgba(124,109,250,0.15);
+  --accent-glow: rgba(124,109,250,0.12);
+  --accent2: #3ecfb2;
+  --teal: #3ecfb2;
+  --teal-dim: rgba(62,207,178,0.12);
+  --teal-glow: rgba(62,207,178,0.25);
+  --accent3: #fa6d8a;
+  --coral: #fa6d8a;
+  --coral-dim: rgba(250,109,138,0.12);
+  --coral-glow: rgba(250,109,138,0.25);
+  --amber: #f5a623;
+  --amber-dim: rgba(245,166,35,0.12);
+  --font-display: 'DM Serif Display', serif;
+  --font-body: 'DM Sans', sans-serif;
+}
+
+html,body {
+  height: 100%;
+  background: var(--bg);
+  color: var(--text);
+  font-family: var(--font-body);
+  overflow-x: hidden;
+}
+
+/* layout */
+.layout{position:relative;z-index:1;min-height:100vh}
+
+/* mesh */
+.mesh{position:fixed;inset:0;pointer-events:none;z-index:0;
+  background:
+    radial-gradient(ellipse 50% 40% at 5% 15%,rgba(124,109,250,0.18) 0%,transparent 60%),
+    radial-gradient(ellipse 40% 35% at 95% 5%,rgba(62,207,178,0.12) 0%,transparent 55%),
+    radial-gradient(ellipse 45% 40% at 80% 90%,rgba(250,109,138,0.1) 0%,transparent 55%),
+    #06080f}
+.mesh::after{content:'';position:absolute;inset:0;
+  background-image:url("data:image/svg+xml,%3Csvg viewBox='0 0 200 200' xmlns='http://www.w3.org/2000/svg'%3E%3Cfilter id='n'%3E%3CfeTurbulence type='fractalNoise' baseFrequency='0.75' numOctaves='4' stitchTiles='stitch'/%3E%3C/filter%3E%3Crect width='100%25' height='100%25' filter='url(%23n)'/%3E%3C/svg%3E");
+  opacity:.025;mix-blend-mode:overlay}
+
+.sidebar {
+  width: 220px;
+  flex-shrink: 0;
+  border-right: 1px solid var(--border, rgba(255,255,255,0.08));
+  background: rgba(6,8,15,0.7);
+  backdrop-filter: blur(20px);
+  display: flex;
+  flex-direction: column;
+  padding: 1.5rem 0;
+  position: fixed;
+  top: 0;
+  bottom: 0;
+  left: 0;
+  height: 100vh;
+  z-index: 100;
+}
+.logo {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  padding: 0 1.25rem 1.5rem;
+  border-bottom: 1px solid var(--border, rgba(255,255,255,0.08));
+  text-decoration: none;
+}
+.logo-mark {
+  width: 30px; height: 30px;
+  border-radius: 8px;
+  flex-shrink: 0;
+  background: linear-gradient(135deg, var(--accent, #7c6dfa), var(--accent2, #3ecfb2));
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  font-size: 12px;
+  font-weight: 700;
+  color: #fff;
+  letter-spacing: -0.5px;
+}
+.logo-text { font-size: 14px; font-weight: 600; color: var(--text, #f0f2f8); }
+
+.nav {
+  flex: 1;
+  padding: 1rem 0;
+  display: flex;
+  flex-direction: column;
+  justify-content: flex-start;
+  gap: 2px;
+}
+.nav-section {
+  padding: 0.5rem 1.25rem 0.25rem;
+  font-size: 10px;
+  font-weight: 600;
+  letter-spacing: 0.1em;
+  text-transform: uppercase;
+  color: var(--muted2, rgba(240,242,248,0.25));
+}
+.nav-item {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  padding: 0.55rem 1.25rem;
+  font-size: 13px;
+  font-weight: 400;
+  color: var(--muted, rgba(240,242,248,0.42));
+  text-decoration: none;
+  transition: color 0.15s, background 0.15s;
+  border-radius: 0;
+  position: relative;
+  cursor: pointer;
+}
+.nav-item:hover { color: var(--text, #f0f2f8); background: rgba(255,255,255,0.04); }
+.nav-item.active { color: var(--text, #f0f2f8); background: rgba(124,109,250,0.1); }
+.nav-item.active::before {
+  content: '';
+  position: absolute;
+  left: 0; top: 0; bottom: 0;
+  width: 2px;
+  background: var(--accent, #7c6dfa);
+  border-radius: 0 2px 2px 0;
+}
+.nav-item svg { width: 15px; height: 15px; opacity: 0.7; flex-shrink: 0; }
+.nav-item.active svg { opacity: 1; }
+
+.sidebar-footer { padding: 1rem 1.25rem; border-top: 1px solid var(--border, rgba(255,255,255,0.08)); }
+.dot { width: 6px; height: 6px; border-radius: 50%; flex-shrink: 0; display: inline-block; }
+.dot.green { background: #3ecfb2; box-shadow: 0 0 6px rgba(62,207,178,0.6); }
+.dot.pulse { animation: pulse 2s ease infinite; }
+@keyframes pulse { 0%, 100% { opacity: 1; transform: scale(1); } 50% { opacity: 0.5; transform: scale(0.8); } }

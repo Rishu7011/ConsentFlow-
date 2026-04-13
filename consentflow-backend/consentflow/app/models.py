@@ -71,6 +71,21 @@ class UserRecord(BaseModel):
     model_config = {"from_attributes": True}
 
 
+class UserListRecord(BaseModel):
+    """Enriched user record returned from GET /users, includes consent summary."""
+
+    id: UUID
+    email: str
+    created_at: datetime
+    consents: int = Field(default=0, description="Total number of consent records for this user")
+    status: str = Field(
+        default="pending",
+        description="Derived status: 'active' if any granted consent, 'revoked' if all revoked, 'pending' if none",
+    )
+
+    model_config = {"from_attributes": True}
+
+
 class HealthResponse(BaseModel):
     status: str = "ok"
     postgres: str

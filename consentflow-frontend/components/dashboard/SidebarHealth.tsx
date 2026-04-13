@@ -15,6 +15,7 @@ export function SidebarHealth() {
   const pgStatus = getStatus(health?.postgres);
   const redisStatus = getStatus(health?.redis);
   const kafkaStatus = getStatus(health?.kafka);
+  const otelStatus = getStatus(health?.otel);
 
   const getDot = (status: string) => {
     if (status === 'loading') return null;
@@ -31,6 +32,9 @@ export function SidebarHealth() {
       </div>
       <div className={`status-row ${kafkaStatus !== 'ok' && kafkaStatus !== 'loading' ? 'err' : ''}`} style={{ color: kafkaStatus !== 'ok' && kafkaStatus !== 'loading' ? 'var(--accent3)' : 'inherit' }}>
         {getDot(kafkaStatus)}Kafka — {kafkaStatus}
+      </div>
+      <div className={`status-row ${otelStatus !== 'ok' && otelStatus !== 'loading' ? 'err' : ''}`} style={{ color: otelStatus !== 'ok' && otelStatus !== 'loading' ? 'var(--accent3)' : 'inherit' }}>
+        {getDot(otelStatus)}Otel — {otelStatus}
       </div>
     </div>
   );

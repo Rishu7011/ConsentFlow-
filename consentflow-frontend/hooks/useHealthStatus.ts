@@ -6,6 +6,7 @@ export interface HealthResponse {
   postgres: string;
   redis: string;
   kafka?: string;
+  otel?: string;
 }
 
 export function useHealthStatus() {

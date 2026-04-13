@@ -1,21 +1,49 @@
 "use client";
 
-import React, { useEffect, useState } from 'react';
+import React, { useCallback, useEffect, useRef, useState } from 'react';
 import Link from 'next/link';
+import { useRouter } from 'next/navigation';
 import { MetricCard } from '@/components/dashboard/MetricCard';
 import { HealthWidget } from '@/components/dashboard/HealthWidget';
 import { SidebarHealth } from '@/components/dashboard/SidebarHealth';
 import './css/dashboard.css';
 import Sidebar from '@/components/layout/Sidebar';
+import api from '@/lib/axios';
 
 export default function Dashboard() {
+  const router = useRouter();
+
   const [metrics, setMetrics] = useState({
     users: 1284,
     granted: 8471,
     blocked: 137,
   });
-  
+
   const [sec, setSec] = useState(0);
+
+  // ── Backend health state ──
+  const [backendOnline, setBackendOnline] = useState<boolean | null>(null); // null = checking
+  const [retrying, setRetrying] = useState(false);
+  const healthRef = useRef<ReturnType<typeof setInterval> | null>(null);
+
+  const checkHealth = useCallback(async (isManual = false) => {
+    if (isManual) setRetrying(true);
+    try {
+      await api.get('/health', { timeout: 4000 });
+      setBackendOnline(true);
+    } catch {
+      setBackendOnline(false);
+    } finally {
+      if (isManual) setRetrying(false);
+    }
+  }, []);
+
+  // Poll every 10 s
+  useEffect(() => {
+    checkHealth();
+    healthRef.current = setInterval(() => checkHealth(), 10_000);
+    return () => { if (healthRef.current) clearInterval(healthRef.current); };
+  }, [checkHealth]);
 
   useEffect(() => {
     const timer = setInterval(() => setSec(s => s + 1), 1000);
@@ -24,6 +52,7 @@ export default function Dashboard() {
 
   const refreshData = () => {
     setSec(0);
+    checkHealth(true);
     setMetrics({
       users: Math.floor(1280 + Math.random() * 10),
       granted: Math.floor(8460 + Math.random() * 20),
@@ -32,21 +61,6 @@ export default function Dashboard() {
   };
 
   useEffect(() => {
-    // Generate sparkline
-    const spark = document.getElementById('sparkline');
-    if (spark) {
-      spark.innerHTML = '';
-      const vals = [18,24,31,22,19,28,35,42,38,51,47,63,71,58,66,74,82,69,77,85,91,78,88,94];
-      const max = Math.max(...vals);
-      vals.forEach(v => {
-        const b = document.createElement('div');
-        b.className = 'spark-bar' + (v > 80 ? ' peak' : v > 60 ? ' hi' : '');
-        b.style.height = (v / max * 100) + '%';
-        b.title = v + ' checks';
-        spark.appendChild(b);
-      });
-    }
-
     // Metric card glow
     const handleMouseMove = (e: MouseEvent) => {
       const card = e.currentTarget as HTMLElement;
@@ -81,13 +95,38 @@ export default function Dashboard() {
               <p className="page-sub">System overview &amp; consent enforcement status</p>
             </div>
             <div className="topbar-right">
-              <div className="badge-live">
-                <div className="dot green pulse"></div>
-                Live
-                <span className="last-updated">Updated {sec < 60 ? `${sec}s` : `${Math.floor(sec/60)}m`} ago</span>
-              </div>
-              <button className="btn" onClick={refreshData}>↻ Refresh</button>
-              <button className="btn primary">+ New Consent</button>
+              {/* ── Backend status badge ── */}
+              {backendOnline === null ? (
+                <div className="badge-live" style={{ borderColor: 'rgba(245,166,35,0.4)', background: 'rgba(245,166,35,0.08)', color: 'rgba(245,166,35,0.9)' }}>
+                  <div className="dot amber pulse" />
+                  Connecting…
+                </div>
+              ) : backendOnline ? (
+                <div className="badge-live">
+                  <div className="dot green pulse" />
+                  Live
+                  <span className="last-updated">Updated {sec < 60 ? `${sec}s` : `${Math.floor(sec/60)}m`} ago</span>
+                </div>
+              ) : (
+                <div
+                  className="badge-live"
+                  title="Click to retry connection"
+                  onClick={() => checkHealth(true)}
+                  style={{
+                    borderColor: 'rgba(250,109,138,0.4)',
+                    background: 'rgba(250,109,138,0.08)',
+                    color: 'rgba(250,109,138,0.95)',
+                    cursor: 'pointer',
+                    userSelect: 'none',
+                  }}
+                >
+                  <div className="dot red" style={{ animation: 'none' }} />
+                  {retrying ? 'Retrying…' : 'Backend Offline'}
+                  {!retrying && <span className="last-updated" style={{ color: 'rgba(250,109,138,0.55)' }}>click to retry</span>}
+                </div>
+              )}
+              <button className="btn" onClick={refreshData}>{retrying ? '…' : '↻'} Refresh</button>
+              <button className="btn primary" onClick={() => router.push('/consent')}>+ New Consent</button>
             </div>
           </div>
 
@@ -321,7 +360,16 @@ export default function Dashboard() {
                   <span style={{ fontFamily: 'var(--font-display)', fontSize: '1.8rem', color: 'var(--accent)' }}>2,841</span>
                   <span style={{ fontSize: '12px', color: 'var(--muted)' }}>total checks</span>
                 </div>
-                <div className="spark-row" id="sparkline"></div>
+                <div className="spark-row" id="sparkline">
+                  {[18,24,31,22,19,28,35,42,38,51,47,63,71,58,66,74,82,69,77,85,91,78,88,94].map((v, i, arr) => (
+                    <div 
+                      key={i}
+                      className={`spark-bar${v > 80 ? ' peak' : v > 60 ? ' hi' : ''}`}
+                      style={{ height: `${(v / Math.max(...arr)) * 100}%` }}
+                      title={`${v} checks`}
+                    />
+                  ))}
+                </div>
                 <div style={{ display: 'flex', justifyContent: 'space-between', marginTop: '.5rem', fontSize: '10px', color: 'var(--muted2)' }}>
                   <span>00:00</span><span>06:00</span><span>12:00</span><span>18:00</span><span>now</span>
                 </div>

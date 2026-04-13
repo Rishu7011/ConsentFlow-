@@ -1,7 +1,6 @@
 "use client";
 
 import React, { useState, useEffect } from 'react';
-import Link from 'next/link';
 import api from '@/lib/axios';
 import './infer.css';
 import Sidebar from '@/components/layout/Sidebar';
@@ -19,15 +18,27 @@ export default function InferenceTester() {
     if (saved) setUuid(saved);
   }, []);
 
+  const UUID_RE = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
+
   const handleUuidChange = (e: React.ChangeEvent<HTMLInputElement>) => {
     setUuid(e.target.value);
+  };
+
+  const handleUuidBlur = (e: React.FocusEvent<HTMLInputElement>) => {
+    // Persist only when the user leaves the field, not on every keystroke
     sessionStorage.setItem('active_user_id', e.target.value);
   };
 
   const fireInference = async () => {
-    if (!uuid) {
+    const trimmedUuid = uuid.trim();
+    if (!trimmedUuid) {
       setStatus('error');
-      setErrorMsg('User ID required');
+      setErrorMsg('User ID is required');
+      return;
+    }
+    if (!UUID_RE.test(trimmedUuid)) {
+      setStatus('error');
+      setErrorMsg('Invalid UUID format — expected xxxxxxxx-xxxx-xxxx-xxxx-xxxxxxxxxxxx');
       return;
     }
     
