@@ -1,25 +1,11 @@
 "use client";
 
-import React, { useEffect, useState, useRef } from 'react';
+import React, { useEffect, useState } from 'react';
 import Sidebar from '@/components/layout/Sidebar';
 import api from '@/lib/axios';
 import './css/consent.css';
 
-const DEMO_UUID = '550e8400-e29b-41d4-a716-446655440000';
-const PURPOSES = ['analytics', 'inference', 'model_training', 'pii', 'webhook'];
-const UUID_RE = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
 
-// Initial Mock Data similar to consent.html
-const initialConsentData = [
-  { userId: DEMO_UUID, email: 'alice@demo.dev', purpose: 'inference', dataType: 'pii', status: 'granted', cached: true, updatedAt: '2026-04-13T09:12:00Z' },
-  { userId: DEMO_UUID, email: 'alice@demo.dev', purpose: 'analytics', dataType: 'pii', status: 'granted', cached: false, updatedAt: '2026-04-13T08:45:00Z' },
-  { userId: DEMO_UUID, email: 'alice@demo.dev', purpose: 'model_training', dataType: 'pii', status: 'revoked', cached: true, updatedAt: '2026-04-12T17:22:00Z' },
-  { userId: DEMO_UUID, email: 'alice@demo.dev', purpose: 'webhook', dataType: 'webhook', status: 'granted', cached: false, updatedAt: '2026-04-11T14:00:00Z' },
-  { userId: 'a1b2c3d4-e5f6-7890-abcd-ef1234567890', email: 'bob@example.com', purpose: 'inference', dataType: 'pii', status: 'revoked', cached: false, updatedAt: '2026-04-13T07:30:00Z' },
-  { userId: 'a1b2c3d4-e5f6-7890-abcd-ef1234567890', email: 'bob@example.com', purpose: 'analytics', dataType: 'pii', status: 'granted', cached: true, updatedAt: '2026-04-13T06:00:00Z' },
-  { userId: 'f0e1d2c3-b4a5-9687-8765-4321fedcba09', email: 'carol@ml.io', purpose: 'model_training', dataType: 'pii', status: 'granted', cached: false, updatedAt: '2026-04-12T22:15:00Z' },
-  { userId: 'f0e1d2c3-b4a5-9687-8765-4321fedcba09', email: 'carol@ml.io', purpose: 'inference', dataType: 'pii', status: 'granted', cached: true, updatedAt: '2026-04-12T21:00:00Z' },
-];
 
 const purposeGateMap: Record<string, string> = {
   inference: 'inference',
@@ -39,8 +25,11 @@ function relTime(iso: string) {
   return `${Math.floor(h / 24)}d ago`;
 }
 
+const PURPOSES = ['analytics', 'inference', 'model_training', 'pii', 'webhook'];
+const UUID_RE = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
+
 export default function ConsentPage() {
-  const [consentData, setConsentData] = useState(initialConsentData);
+  const [consentData, setConsentData] = useState<any[]>([]);
   const [globalUserId, setGlobalUserId] = useState('');
   const [formUserId, setFormUserId] = useState('');
   const [formPurpose, setFormPurpose] = useState('');
@@ -50,9 +39,37 @@ export default function ConsentPage() {
   const [selectedStatus, setSelectedStatus] = useState<'granted' | 'revoked'>('granted');
   const [currentTab, setCurrentTab] = useState<'matrix' | 'list'>('matrix');
   
-  const [checkResult, setCheckResult] = useState<any>(null);
+  const [checkResult, setCheckResult] = useState<{ userId: string, purpose: string, status?: string, dataType?: string, cached?: boolean, updatedAt?: string, notFound?: boolean } | null>(null);
   const [revokeTarget, setRevokeTarget] = useState<{ userId: string, purpose: string } | null>(null);
   const [toasts, setToasts] = useState<Array<{ id: number, msg: string, type: string }>>([]);
+
+  // Pre-fill UUID from sessionStorage (persisted from Users/Infer page)
+  useEffect(() => {
+    if (typeof window !== 'undefined') {
+      const saved = sessionStorage.getItem('active_user_id');
+      if (saved && UUID_RE.test(saved)) {
+        setTimeout(() => {
+          setGlobalUserId(saved);
+          setFormUserId(saved);
+        }, 0);
+      }
+    }
+  }, []);
+
+  // Fetch real consent data list
+  useEffect(() => {
+    api.get('/consent').then(res => {
+      setConsentData(res.data.map((r: any) => ({
+        userId: r.user_id,
+        email: r.user_id.substring(0, 8),
+        purpose: r.purpose,
+        dataType: r.data_type,
+        status: r.status,
+        cached: false,
+        updatedAt: r.updated_at
+      })));
+    }).catch(e => console.warn('Failed to load consent data', e));
+  }, []);
 
   const isGlobalUuidValid = globalUserId ? UUID_RE.test(globalUserId.trim()) : false;
   
@@ -82,11 +99,6 @@ export default function ConsentPage() {
     }
   };
 
-  const loadDemo = () => {
-    handleGlobalUuidChange(DEMO_UUID);
-    showToast('Demo UUID loaded — alice@demo.dev', 'info');
-  };
-
   const submitConsent = async () => {
     const userId = formUserId.trim();
     if (!userId || !UUID_RE.test(userId)) { showToast('Invalid or missing User UUID', 'error'); return; }
@@ -114,19 +126,19 @@ export default function ConsentPage() {
       });
 
       showToast(`Consent ${selectedStatus === 'granted' ? 'granted' : 'updated to revoked'} — ${formPurpose} / ${formDataType}`, selectedStatus === 'granted' ? 'success' : 'warning');
-    } catch (e: any) {
-      // Fallback local update if API fails during dev
-      console.warn("API Error, updating local state only", e);
-      setConsentData(prev => {
-        const newData = [...prev];
-        const idx = newData.findIndex(r => r.userId === userId && r.purpose === formPurpose && r.dataType === formDataType);
-        const email = prev.find(r => r.userId === userId)?.email || 'New User';
-        const rec = { userId, email, purpose: formPurpose, dataType: formDataType, status: selectedStatus, cached: false, updatedAt: new Date().toISOString() };
-        if (idx >= 0) newData[idx] = rec;
-        else newData.push(rec);
-        return newData;
-      });
-      showToast(`Consent updated locally (API disconnected)`, selectedStatus === 'granted' ? 'success' : 'warning');
+    } catch (err) {
+      const e = err as any;
+      const status = e?.response?.status ?? 500;
+      const detail = e?.response?.data?.detail ?? 'Request failed';
+      if (status === 404) {
+        showToast('User not found — register this UUID first', 'error');
+      } else if (status === 422) {
+        showToast('Invalid payload — check UUID and fields', 'error');
+      } else if (status === 503) {
+        showToast('Backend offline — consent not saved', 'error');
+      } else {
+        showToast(`Error ${status}: ${detail}`, 'error');
+      }
     }
   };
 
@@ -147,14 +159,18 @@ export default function ConsentPage() {
         dataType: 'all' // backend response might omit datatype if doing effective check, fallback
       });
       showToast(`Checked live data for ${checkPurpose}`, 'success');
-    } catch (e: any) {
-       // Local fallback
-      console.warn("API Check failed, using local mock data", e);
-      const rec = consentData.find(r => r.userId === userId && r.purpose === checkPurpose);
-      if (!rec) {
+    } catch (err) {
+      const e = err as any;
+      const status = e?.response?.status ?? 500;
+      const detail = e?.response?.data?.detail ?? 'Request failed';
+      if (status === 404) {
         setCheckResult({ notFound: true, userId, purpose: checkPurpose });
+      } else if (status === 422) {
+        showToast('Invalid UUID format', 'error');
+      } else if (status === 503) {
+        showToast('Backend offline — cannot check consent status', 'error');
       } else {
-        setCheckResult({ ...rec });
+        showToast(`Error ${status}: ${detail}`, 'error');
       }
     }
   };
@@ -180,7 +196,8 @@ export default function ConsentPage() {
       setRevokeTarget(null);
       setCheckResult(null);
       showToast(`Revocation broadcast — ${purpose} × all data types → Kafka`, 'warning');
-    } catch (e: any) {
+    } catch (err) {
+      const e = err as any;
       console.warn("Revoke API failed, updating locally", e);
       setConsentData(prev =>
         prev.map(r =>
@@ -286,8 +303,6 @@ export default function ConsentPage() {
                   <span>{consentData.find(r => r.userId === globalUserId.trim())?.email || 'Unknown User'}</span>
                 </div>
               )}
-              
-              <button className="btn btn-sm" onClick={loadDemo}>Load Demo UUID</button>
             </div>
 
             {/* TWO COLUMN */}
@@ -665,7 +680,7 @@ export default function ConsentPage() {
 
                     </div>
                     <div style={{fontSize:'11px',color:'var(--muted2)',marginTop:'4px'}}>
-                      Gate status reflects selected user's current consent. Kafka broadcasts revocation in real-time.
+                      Gate status reflects selected user&apos;s current consent. Kafka broadcasts revocation in real-time.
                     </div>
                   </div>
                 </div>

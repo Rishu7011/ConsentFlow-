@@ -34,6 +34,7 @@ from consentflow.app.routers import webhook as webhook_router
 from consentflow.app.routers import infer as infer_router
 from consentflow.app.routers import audit as audit_router
 from consentflow.app.routers import users as users_router
+from consentflow.app.routers import dashboard as dashboard_router
 from consentflow.inference_gate import ConsentMiddleware
 
 
@@ -141,6 +142,7 @@ def create_app() -> FastAPI:
     app.include_router(webhook_router.router)  # prefix="/webhook"
     app.include_router(infer_router.router)
     app.include_router(audit_router.router)   # prefix="/audit" (Step 7)
+    app.include_router(dashboard_router.router)
 
     # ── Health endpoint ───────────────────────────────────────────────────────
     @app.get(

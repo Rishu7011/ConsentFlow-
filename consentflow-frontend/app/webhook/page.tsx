@@ -3,6 +3,7 @@
 import React, { useState, useEffect, useRef } from "react";
 import Sidebar from "@/components/layout/Sidebar";
 import "./css/webhook.css";
+import api from "@/lib/axios";
 
 const UUID_REGEX = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
 
@@ -72,7 +73,7 @@ export default function WebhookPage() {
   
   const [responseState, setResponseState] = useState<"idle" | "responded">("idle");
   const [responseCode, setResponseCode] = useState<number | null>(null);
-  const [responseData, setResponseData] = useState<any>(null);
+  const [responseData, setResponseData] = useState<{ kafka_published?: boolean, warning?: string, status?: string, user_id?: string, purpose?: string } | null>(null);
   const [responseTime, setResponseTime] = useState<number>(0);
   const [respondedAt, setRespondedAt] = useState<string>("");
   
@@ -81,6 +82,16 @@ export default function WebhookPage() {
   const [toasts, setToasts] = useState<{id: number; msg: string; color: string; removing: boolean}[]>([]);
   
   const toastIdCounter = useRef(0);
+
+  // Pre-fill UUID from sessionStorage (persisted from Users/Infer page)
+  useEffect(() => {
+    if (typeof window !== 'undefined') {
+      const saved = sessionStorage.getItem('active_user_id');
+      if (saved) {
+        syncFromQuick(saved, quickPurpose);
+      }
+    }
+  }, []); // eslint-disable-line react-hooks/exhaustive-deps
 
   const showToast = (msg: string, color = 'var(--accent)') => {
     const id = toastIdCounter.current++;
@@ -122,7 +133,7 @@ export default function WebhookPage() {
       setIsValid(true);
       setValidationMsg('Valid payload — ready to fire');
       return true;
-    } catch(e) {
+    } catch {
       setIsValid(false);
       setValidationMsg('Invalid JSON syntax');
       return false;
@@ -144,6 +155,10 @@ export default function WebhookPage() {
       setQuickUserErr(true);
     } else {
       setQuickUserErr(false);
+      // Persist valid UUID for cross-page use
+      if (uid && typeof window !== 'undefined') {
+        sessionStorage.setItem('active_user_id', uid);
+      }
     }
 
     try {
@@ -153,7 +168,7 @@ export default function WebhookPage() {
       const newVal = JSON.stringify(p, null, 2);
       setJsonInput(newVal);
       validatePayload(newVal);
-    } catch(e) {
+    } catch {
       // Ignored
     }
   };
@@ -164,7 +179,7 @@ export default function WebhookPage() {
       setJsonInput(formatted);
       validatePayload(formatted);
       showToast('Formatted', 'var(--accent)');
-    } catch(e) {
+    } catch {
       showToast('Invalid JSON — cannot format', 'var(--coral)');
     }
   };
@@ -187,49 +202,74 @@ export default function WebhookPage() {
     Object.keys(gateStates).forEach(k => newGateStates[k] = 'propagating');
     setGateStates(newGateStates);
 
-    let payload: any;
+    let payload: Record<string, unknown>;
     try { payload = JSON.parse(jsonInput); }
-    catch(e) { setLoading(false); return; }
+    catch { setLoading(false); return; }
 
     const t0 = performance.now();
-    
-    // Simulate latency
-    await new Promise(r => setTimeout(r, 600 + Math.random() * 400));
-    const elapsed = Math.round(performance.now() - t0);
 
-    const isPartial = Math.random() > 0.7; // 30% chance 207
-    const statusCode = isPartial ? 207 : 200;
+    try {
+      // POST /api/webhook → proxied to POST /webhook/consent-revoke
+      // Note: 207 Multi-Status is a partial success (DB ok, Kafka failed) — not an error
+      const res = await api.post('/webhook', payload, { validateStatus: (s) => s < 500 });
+      const elapsed = Math.round(performance.now() - t0);
+      const statusCode = res.status;
+      const responseBody = res.data;
 
-    const mockResponse = {
-      status: isPartial ? 'partial' : 'propagated',
-      user_id: payload.userId,
-      purpose: payload.purpose,
-      kafka_published: !isPartial,
-      warning: isPartial ? 'Kafka broker temporarily unavailable. DB updated.' : null
-    };
-    
-    setResponseState("responded");
-    setResponseCode(statusCode);
-    setResponseData(mockResponse);
-    setResponseTime(elapsed);
-    setRespondedAt(new Date().toLocaleTimeString());
-    
-    setHistory(prev => {
-      const nw = [{ code: statusCode, userId: payload.userId, purpose: payload.purpose, time: new Date() }, ...prev];
-      if (nw.length > 20) nw.pop();
-      return nw;
-    });
+      setResponseState("responded");
+      setResponseCode(statusCode);
+      setResponseData(responseBody);
+      setResponseTime(elapsed);
+      setRespondedAt(new Date().toLocaleTimeString());
 
-    setTimeout(() => {
-      setGateStates(prev => {
-        const finishedStates: Record<string, GateState> = {};
-        Object.keys(prev).forEach(k => finishedStates[k] = 'blocking');
-        return finishedStates;
+      setHistory(prev => {
+        const nw = [{ code: statusCode, userId: String(payload.userId), purpose: String(payload.purpose), time: new Date() }, ...prev];
+        if (nw.length > 20) nw.pop();
+        return nw;
       });
-    }, 300);
 
-    setLoading(false);
-    showToast(statusCode === 200 ? 'Webhook propagated successfully' : 'Partial success — check Kafka status', statusCode === 200 ? 'var(--teal)' : 'var(--amber)');
+      setTimeout(() => {
+        setGateStates(prev => {
+          const finishedStates: Record<string, GateState> = {};
+          Object.keys(prev).forEach(k => finishedStates[k] = statusCode === 200 ? 'blocking' : 'idle');
+          return finishedStates;
+        });
+      }, 300);
+
+      if (statusCode === 200) {
+        showToast('Webhook propagated successfully', 'var(--teal)');
+      } else if (statusCode === 207) {
+        showToast('Partial success — Kafka publish failed (207)', 'var(--amber)');
+      } else if (statusCode === 422) {
+        showToast('Validation error — check payload fields', 'var(--coral)');
+      } else {
+        showToast(`Unexpected status ${statusCode}`, 'var(--coral)');
+      }
+    } catch (err) {
+      const e = err as {response?: {status?: number, data?: unknown}};
+      const elapsed = Math.round(performance.now() - t0);
+      const statusCode = e?.response?.status ?? 503;
+      const responseBody = e?.response?.data ?? { detail: 'Backend unreachable' };
+
+      setResponseState("responded");
+      setResponseCode(statusCode);
+      setResponseData(responseBody);
+      setResponseTime(elapsed);
+      setRespondedAt(new Date().toLocaleTimeString());
+
+      setGateStates(prev => {
+        const idles: Record<string, GateState> = {};
+        Object.keys(prev).forEach(k => idles[k] = 'idle');
+        return idles;
+      });
+
+      showToast(
+        statusCode === 503 ? 'Backend offline — cannot fire webhook' : `Error ${statusCode}`,
+        'var(--coral)'
+      );
+    } finally {
+      setLoading(false);
+    }
   };
 
   const resetAll = () => {
@@ -272,7 +312,7 @@ export default function WebhookPage() {
   };
   
   // Update relative times artificially for history
-  const [tick, setTick] = useState(0);
+  const [, setTick] = useState(0);
   useEffect(() => {
     const t = setInterval(() => setTick(i => i + 1), 10000);
     return () => clearInterval(t);
@@ -347,7 +387,7 @@ export default function WebhookPage() {
                 <div className="card-body">
                   <div className="info-box">
                     <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8"><circle cx="12" cy="12" r="10"/><line x1="12" y1="8" x2="12" y2="12"/><line x1="12" y1="16" x2="12.01" y2="16"/></svg>
-                    <span>This endpoint uses <strong style={{color:'var(--text)'}}>camelCase</strong> field names — note <code style={{fontFamily:'JetBrains Mono',fontSize:'11px',color:'var(--accent)'}}>userId</code> and <code style={{fontFamily:'JetBrains Mono',fontSize:'11px',color:'var(--accent)'}}>consentStatus</code> differ from the rest of the API. Only <code style={{fontFamily:'JetBrains Mono',fontSize:'11px',color:'var(--coral)'}}>"revoked"</code> is accepted as <code style={{fontFamily:'JetBrains Mono',fontSize:'11px',color:'var(--accent)'}}>consentStatus</code>.</span>
+                    <span>This endpoint uses <strong style={{color:'var(--text)'}}>camelCase</strong> field names — note <code style={{fontFamily:'JetBrains Mono',fontSize:'11px',color:'var(--accent)'}}>userId</code> and <code style={{fontFamily:'JetBrains Mono',fontSize:'11px',color:'var(--accent)'}}>consentStatus</code> differ from the rest of the API. Only <code style={{fontFamily:'JetBrains Mono',fontSize:'11px',color:'var(--coral)'}}>&quot;revoked&quot;</code> is accepted as <code style={{fontFamily:'JetBrains Mono',fontSize:'11px',color:'var(--accent)'}}>consentStatus</code>.</span>
                   </div>
 
                   <div className="field">
@@ -375,7 +415,7 @@ export default function WebhookPage() {
                     </div>
                     <div className="field-hint">
                       <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"><circle cx="12" cy="12" r="10"/><path d="M12 8v4l3 3"/></svg>
-                      Pre-filled with demo user UUID. Replace with a real UUID from the Users page.
+                      Replace the UUID with a real User ID from the Users page.
                     </div>
                   </div>
 

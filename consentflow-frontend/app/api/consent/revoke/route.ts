@@ -2,11 +2,11 @@ import { NextRequest, NextResponse } from 'next/server';
 
 const BACKEND = process.env.NEXT_PUBLIC_API_URL || 'http://localhost:8000';
 
-// POST /api/users → POST /users (register new user)
+// POST /api/consent/revoke → POST /consent/revoke
 export async function POST(req: NextRequest) {
   try {
     const body = await req.json();
-    const res = await fetch(`${BACKEND}/users`, {
+    const res = await fetch(`${BACKEND}/consent/revoke`, {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify(body),

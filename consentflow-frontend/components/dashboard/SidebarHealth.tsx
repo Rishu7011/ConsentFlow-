@@ -1,16 +1,17 @@
 "use client";
 
 import React from 'react';
-import { useHealthStatus } from '@/hooks/useHealthStatus';
+import { useHealth } from '@/hooks/useHealth';
 
 export function SidebarHealth() {
-  const { data: health, isError, isLoading } = useHealthStatus();
+  const { data: health, isError, isLoading } = useHealth(30000);
 
   const getStatus = (serviceStatus?: string) => {
     if (isLoading) return 'loading';
     if (isError) return 'error';
     return serviceStatus || 'ok';
   };
+
 
   const pgStatus = getStatus(health?.postgres);
   const redisStatus = getStatus(health?.redis);

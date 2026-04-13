@@ -3,41 +3,7 @@
 import React, { useEffect, useRef, useState, useMemo, useCallback } from 'react';
 import Sidebar from '@/components/layout/Sidebar';
 import './css/audit.css';
-
-// --- MOCK DATA GENERATION (from audit.html) ---
-const USERS = [
-  { id: '550e8400-e29b-41d4-a716-446655440000', email: 'alice@demo.dev' },
-  { id: 'a1b2c3d4-e5f6-7890-abcd-ef1234567890', email: 'bob@example.com' },
-  { id: 'f0e1d2c3-b4a5-9687-8765-4321fedcba09', email: 'carol@ml.io' },
-  { id: 'deadbeef-1234-5678-90ab-cdef01234567', email: 'dave@corp.ai' },
-];
-
-const GATES = ['inference_gate','dataset_gate','training_gate','monitoring_gate'];
-const PURPOSES = ['analytics','inference','model_training','pii','webhook'];
-
-function randFrom(arr: any[]) { return arr[Math.floor(Math.random() * arr.length)]; }
-function uuid4() { return 'xxxxxxxx-xxxx-4xxx-yxxx-xxxxxxxxxxxx'.replace(/[xy]/g, c => { const r = Math.random()*16|0; return (c==='x'?r:(r&0x3|0x8)).toString(16); }); }
-
-function genEntry(hoursAgo: number) {
-  const user = randFrom(USERS);
-  const action = Math.random() < 0.62 ? 'ALLOW' : 'BLOCKED';
-  const gate = randFrom(GATES);
-  const purpose = randFrom(PURPOSES);
-  const consent = action === 'ALLOW' ? 'granted' : 'revoked';
-  const t = new Date(Date.now() - hoursAgo * 3600000 - Math.random() * 3600000);
-  return {
-    id: uuid4(),
-    event_time: t.toISOString(),
-    user_id: user.id,
-    user_email: user.email,
-    gate_name: gate,
-    action_taken: action,
-    consent_status: consent,
-    purpose,
-    trace_id: Math.random() > 0.15 ? uuid4().replace(/-/g,'').substring(0,16) : null,
-    metadata: Math.random() > 0.5 ? { latency_ms: Math.floor(Math.random()*80+5), model: 'gpt-4o', region: 'us-east-1' } : null,
-  };
-}
+import { useAuditTrail, AuditEntry } from '@/hooks/useAuditTrail';
 
 // --- UTILS ---
 function gateClass(g: string) {
@@ -56,17 +22,21 @@ function relTime(iso: string) {
 }
 function fullTime(iso: string) { return new Date(iso).toLocaleString('en-US',{month:'short',day:'numeric',hour:'2-digit',minute:'2-digit',second:'2-digit'}); }
 
+const generateRandomMeta = () => ({
+  redisHit: Math.random() > 0.4,
+  latencyMs: Math.floor(Math.random() * 8 + 1),
+});
+
 export default function AuditPage() {
-  const [allEvents, setAllEvents] = useState<any[]>([]);
-  const [filteredData, setFilteredData] = useState<any[]>([]);
+  const [allEvents, setAllEvents] = useState<AuditEntry[]>([]);
+  const [filteredData, setFilteredData] = useState<AuditEntry[]>([]);
   const [currentPage, setCurrentPage] = useState(1);
   const [sortKey, setSortKey] = useState('event_time');
   const [sortDir, setSortDir] = useState<'asc' | 'desc'>('desc');
-  const [selectedEvent, setSelectedEvent] = useState<any | null>(null);
-  // Stable random values for the drawer timeline — computed once when a row is selected
+  const [selectedEvent, setSelectedEvent] = useState<AuditEntry | null>(null);
   const [drawerMeta, setDrawerMeta] = useState<{ redisHit: boolean; latencyMs: number } | null>(null);
   const [toast, setToast] = useState<{ msg: string, type: 'info' | 'success' | 'warning' } | null>(null);
-  
+
   // Filters
   const [filterId, setFilterId] = useState('');
   const [filterGate, setFilterGate] = useState('');
@@ -77,24 +47,29 @@ export default function AuditPage() {
   const [pollCountdown, setPollCountdown] = useState(15);
   const [flashRow, setFlashRow] = useState<string | null>(null);
 
-  // Initial Load
+  // ── Real API data with 15s refetch interval ──
+  const { data: auditData, refetch: refetchAudit } = useAuditTrail(
+    { limit: filterLimit },
+    0  // manual polling via countdown below (refetchAudit)
+  );
+
+  // Load real API data 
   useEffect(() => {
-    const e = [];
-    for (let i = 0; i < 180; i++) { e.push(genEntry(i * 0.13)); }
-    e.sort((a,b) => new Date(b.event_time).getTime() - new Date(a.event_time).getTime());
-    setAllEvents(e);
-  }, []);
+    if (auditData?.entries) {
+      setAllEvents(auditData.entries);
+    }
+  }, [auditData]);
 
   // Show Toast
   const showToast = useCallback((msg: string, type: 'info' | 'success' | 'warning' = 'info') => {
     setToast({ msg, type });
-    setTimeout(() => setToast(null), 3300); // 3000ms + 300ms dissolve
+    setTimeout(() => setToast(null), 3300);
   }, []);
 
-  // Stable ref to refreshData so the poll interval never needs to re-register
+  // Stable ref to refreshData
   const refreshDataRef = useRef<(auto?: boolean) => void>(() => {});
 
-  // Poll — no dependency on allEvents so the interval never resets after a refresh
+  // Poll countdown — fires refetchAudit every 15s
   useEffect(() => {
     const timer = setInterval(() => {
       setPollCountdown((prev) => {
@@ -106,23 +81,35 @@ export default function AuditPage() {
       });
     }, 1000);
     return () => clearInterval(timer);
-  }, []); // eslint-disable-line react-hooks/exhaustive-deps
+  }, []);
 
   const refreshData = useCallback((auto = false) => {
-    const newEntry = genEntry(0);
-    setAllEvents(prev => [newEntry, ...prev]);
-    setFlashRow(newEntry.id);
-    setTimeout(() => setFlashRow(null), 600);
-    if (!auto) setPollCountdown(15);
-    showToast('Audit trail refreshed — 1 new event', 'info');
-  }, [showToast]);
+    refetchAudit().then(({ data }) => {
+      if (data?.entries && data.entries.length > 0) {
+        const newEntries = data.entries.filter(
+          (e: AuditEntry) => !allEvents.some((existing) => existing.id === e.id)
+        );
+        if (newEntries.length > 0) {
+          setAllEvents(prev => [...newEntries, ...prev]);
+          setFlashRow(newEntries[0].id);
+          setTimeout(() => setFlashRow(null), 600);
+          if (!auto) setPollCountdown(15);
+          showToast(`Audit trail refreshed — ${newEntries.length} new event${newEntries.length > 1 ? 's' : ''}`, 'info');
+        } else {
+          if (!auto) showToast('Audit trail up to date', 'info');
+        }
+      }
+    }).catch(() => {
+      if (!auto) showToast('Backend offline', 'warning');
+    });
+  }, [refetchAudit, allEvents, showToast]);
 
   // Keep the ref in sync with the latest refreshData callback
   useEffect(() => { refreshDataRef.current = refreshData; }, [refreshData]);
 
   // Apply filters and sort
   useEffect(() => {
-    let result = allEvents.filter(e => {
+    const result = allEvents.filter(e => {
       const uid = filterId.trim().toLowerCase();
       if (uid && !e.user_id.toLowerCase().includes(uid) && !e.user_email.toLowerCase().includes(uid)) return false;
       if (filterGate && e.gate_name !== filterGate) return false;
@@ -202,13 +189,10 @@ export default function AuditPage() {
   }, [allEvents]);
 
   // Drawer Actions
-  const openDrawer = (ev: any) => {
+  const openDrawer = (ev: AuditEntry) => {
     setSelectedEvent(ev);
     // Seed stable values once per event so the timeline never flickers on re-render
-    setDrawerMeta({
-      redisHit: Math.random() > 0.4,
-      latencyMs: Math.floor(Math.random() * 8 + 1),
-    });
+    setDrawerMeta(generateRandomMeta());
   };
 
   const renderDrawerBody = () => {
@@ -512,7 +496,7 @@ export default function AuditPage() {
                         </td>
                       </tr>
                     ) : (
-                      pageData.map((e, i) => (
+                      pageData.map((e) => (
                         <tr 
                           key={e.id} 
                           className={`${selectedEvent?.id === e.id ? 'selected' : ''} ${flashRow === e.id ? 'new-row-flash' : ''}`}

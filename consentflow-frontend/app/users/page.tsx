@@ -102,51 +102,13 @@ export default function UsersPage() {
   const [searchQuery, setSearchQuery] = useState("");
 
   /* ────────── Fetch all users ────────── */
+  // NOTE: The backend has no GET /users list endpoint — only GET /users/{id}.
+  // We keep this stub to avoid breaking the table UI; it always returns empty.
   const fetchUsers = useCallback(async () => {
-    setLoadingUsers(true);
-    setTableError(null);
-    try {
-      // GET /users returns UserListRecord[] — includes consents count and derived status
-      const res = await api.get<User[]>("/users");
-      const data = res.data;
-      setUsers(data);
-      setFilteredUsers(data);
-      const active  = data.filter((u) => u.status === "active").length;
-      const revoked = data.filter((u) => u.status === "revoked").length;
-      setStats({ total: data.length, active, revoked });
-    } catch (err: any) {
-      // Only fall back to demo data when the backend is genuinely unreachable
-      // (network error, CORS, no response). For API errors (4xx/5xx) surface the
-      // real problem so it's visible rather than silently swapping to fake data.
-      const isNetworkError = !err?.response; // no response = connection refused / offline
-
-      if (isNetworkError) {
-        const DEMO: User[] = [
-          { id: "550e8400-e29b-41d4-a716-446655440000", email: "alice@example.com",  created_at: "2026-04-01T09:12:44Z", consents: 3, status: "active" },
-          { id: "a3f2c1d0-4b5e-6f7a-8b9c-0d1e2f3a4b5c", email: "bob@acme.io",        created_at: "2026-04-03T14:35:00Z", consents: 2, status: "active" },
-          { id: "f47ac10b-58cc-4372-a567-0e02b2c3d479", email: "carol@data.co",       created_at: "2026-04-05T11:22:17Z", consents: 1, status: "revoked" },
-          { id: "c56a4180-65aa-42ec-a945-5fd21dec0538", email: "dan@ml.dev",          created_at: "2026-04-07T16:44:55Z", consents: 4, status: "active" },
-          { id: "6ba7b810-9dad-11d1-80b4-00c04fd430c8", email: "eve@research.ai",     created_at: "2026-04-09T08:05:33Z", consents: 2, status: "active" },
-          { id: "6ba7b811-9dad-11d1-80b4-00c04fd430c8", email: "frank@startup.io",    created_at: "2026-04-10T19:01:12Z", consents: 0, status: "pending" },
-          { id: "6ba7b812-9dad-11d1-80b4-00c04fd430c8", email: "grace@lab.com",       created_at: "2026-04-11T13:50:09Z", consents: 3, status: "active" },
-        ];
-        setUsers(DEMO);
-        setFilteredUsers(DEMO);
-        const active  = DEMO.filter((u) => u.status === "active").length;
-        const revoked = DEMO.filter((u) => u.status === "revoked").length;
-        setStats({ total: DEMO.length, active, revoked });
-        setTableError("Backend offline — showing demo data");
-      } else {
-        // Backend responded but with an error — show real error, keep table empty
-        const httpStatus = err.response?.status ?? "?";
-        const detail     = err.response?.data?.detail ?? err.message ?? "Unknown error";
-        setTableError(`API error ${httpStatus}: ${detail}`);
-        setUsers([]);
-        setFilteredUsers([]);
-      }
-    } finally {
-      setLoadingUsers(false);
-    }
+    setLoadingUsers(false);
+    setTableError("Use 'Look Up User' above to search by UUID. The backend does not expose a user-list endpoint.");
+    setUsers([]);
+    setFilteredUsers([]);
   }, []);
 
   useEffect(() => { fetchUsers(); }, [fetchUsers]);
@@ -178,23 +140,29 @@ export default function UsersPage() {
     setRegResult(null);
     setRegError(null);
     try {
-      // POST /users/register — backend alias that returns UserRecord (id, email, created_at)
-      // New users have no consents yet, so status starts as 'pending'
+      // POST /users — backend returns { id, email, created_at }
+      // Note: The endpoint is POST /users (NOT /users/register)
       const res = await api.post<{ id: string; email: string; created_at: string }>(
-        "/users/register",
+        "/users",
         { email: regEmail },
       );
       const newUser: User = { ...res.data, consents: 0, status: "pending" };
       setRegResult(newUser);
-      setUsers((prev) => [newUser, ...prev]);
+      // Persist UUID to sessionStorage for cross-page use (consent, infer, webhook)
+      if (typeof window !== 'undefined') {
+        sessionStorage.setItem('active_user_id', newUser.id);
+      }
       setStats((s) => ({ ...s, total: s.total + 1 }));
       setRegEmail("");
       setRegEmailState("idle");
-    } catch (err: any) {
-      const httpStatus = err?.response?.status ?? 500;
-      const detail     = err?.response?.data?.detail ?? "Registration failed";
+    } catch (err) {
+      const e = err as { response?: { status?: number; data?: { detail?: string } } };
+      const httpStatus = e?.response?.status ?? 500;
+      const detail     = e?.response?.data?.detail ?? "Registration failed";
       if (httpStatus === 409) {
         setRegError({ code: "409 CONFLICT", msg: "This email is already registered" });
+      } else if (httpStatus === 422) {
+        setRegError({ code: "422 UNPROCESSABLE", msg: "Invalid email format" });
       } else {
         setRegError({ code: `${httpStatus} ERROR`, msg: String(detail) });
       }
@@ -210,13 +178,25 @@ export default function UsersPage() {
     setLookupResult(null);
     setLookupError(null);
     try {
-      // GET /users/{id} now returns UserListRecord (includes consents + status)
+      // GET /users/{id} — returns { id, email, created_at }
       const res = await api.get<User>(`/users/${lookupUUID.trim()}`);
-      setLookupResult(res.data);
-    } catch (err: any) {
-      const httpStatus = err?.response?.status ?? 500;
+      const user = res.data;
+      // Normalize: backend only returns id/email/created_at (no consents/status)
+      const normalized: User = {
+        id: user.id,
+        email: user.email,
+        created_at: user.created_at,
+        consents: typeof (user as unknown as Record<string, unknown>).consents === 'number' ? (user as unknown as Record<string, unknown>).consents as number : 0,
+        status: (user as unknown as Record<string, unknown>).status as 'active' | 'revoked' ?? 'active',
+      };
+      setLookupResult(normalized);
+    } catch (err) {
+      const e = err as { response?: { status?: number } };
+      const httpStatus = e?.response?.status ?? 500;
       if (httpStatus === 404) {
         setLookupError("No user found with this UUID. Check the ID and try again.");
+      } else if (httpStatus === 422) {
+        setLookupError("Invalid UUID format — must be xxxxxxxx-xxxx-xxxx-xxxx-xxxxxxxxxxxx");
       } else {
         setLookupError(`Request failed (${httpStatus}) — is the backend running?`);
       }
@@ -231,12 +211,6 @@ export default function UsersPage() {
     setLookupUUIDState("valid");
     setLookupResult(u);
     setLookupError(null);
-  };
-
-  /* ────────── Load demo UUID ────────── */
-  const loadDemo = () => {
-    const demo = users[0];
-    if (demo) loadRow(demo);
   };
 
   /* ────────── Copy to clipboard ────────── */
@@ -499,7 +473,6 @@ export default function UsersPage() {
                     )}
                     {lookupLoading ? "Fetching…" : "Fetch User"}
                   </button>
-                  <button className="btn" onClick={loadDemo}>Demo UUID</button>
                 </div>
 
                 {/* User detail result */}

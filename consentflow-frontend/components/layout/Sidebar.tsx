@@ -21,6 +21,7 @@ const toolsItems = [
     { href: "/infer", label: "Inference Tester", icon: <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8"><polygon points="13 2 3 14 12 14 11 22 21 10 12 10 13 2" /></svg> },
 ];
 
+// eslint-disable-next-line @typescript-eslint/no-explicit-any
 const MotionLink = motion.create ? motion.create(Link) : (motion as any)(Link);
 
 export default function Sidebar() {

@@ -5,40 +5,76 @@ import Link from 'next/link';
 import { useRouter } from 'next/navigation';
 import { MetricCard } from '@/components/dashboard/MetricCard';
 import { HealthWidget } from '@/components/dashboard/HealthWidget';
-import { SidebarHealth } from '@/components/dashboard/SidebarHealth';
+
 import './css/dashboard.css';
 import Sidebar from '@/components/layout/Sidebar';
 import api from '@/lib/axios';
+import { useAuditTrail } from '@/hooks/useAuditTrail';
+
+// Relative time helper
+function relTime(iso: string) {
+  const s = Math.floor((Date.now() - new Date(iso).getTime()) / 1000);
+  if (s < 60) return `${s}s ago`;
+  if (s < 3600) return `${Math.floor(s / 60)}m ago`;
+  return `${Math.floor(s / 3600)}h ago`;
+}
 
 export default function Dashboard() {
   const router = useRouter();
 
-  const [metrics, setMetrics] = useState({
-    users: 1284,
-    granted: 8471,
-    blocked: 137,
+  const PURPOSE_CONFIG = [
+    { key: 'analytics', color: 'var(--accent2)', gradient: 'rgba(62,207,178,0.4)' },
+    { key: 'inference', color: 'var(--accent)', gradient: 'rgba(124,109,250,0.4)' },
+    { key: 'training', color: 'var(--amber)', gradient: 'rgba(245,166,35,0.4)' },
+    { key: 'pii', color: 'var(--accent3)', gradient: 'rgba(250,109,138,0.4)' },
+    { key: 'webhook', color: 'var(--accent2)', gradient: 'rgba(62,207,178,0.4)' }
+  ];
+
+  const [metrics, setMetrics] = useState({ 
+    users: 0, 
+    granted: 0, 
+    blocked: 0,
+    purposes: {} as Record<string, number>,
+    checks_24h_total: 0,
+    checks_24h_allowed: 0,
+    checks_24h_blocked: 0,
+    checks_sparkline: Array(24).fill(0)
   });
 
   const [sec, setSec] = useState(0);
 
   // ── Backend health state ──
-  const [backendOnline, setBackendOnline] = useState<boolean | null>(null); // null = checking
+  const [backendOnline, setBackendOnline] = useState<boolean | null>(null);
   const [retrying, setRetrying] = useState(false);
   const healthRef = useRef<ReturnType<typeof setInterval> | null>(null);
+
+  // ── Real audit trail — 15s polling ──
+  const { data: auditData, refetch: refetchAudit } = useAuditTrail({ limit: 8 }, 15000);
+  const recentEvents = auditData?.entries ?? [];
+
+  const fetchStats = useCallback(async () => {
+    try {
+      const res = await api.get('/dashboard-stats');
+      setMetrics(res.data);
+    } catch {
+      // Ignored
+    }
+  }, []);
 
   const checkHealth = useCallback(async (isManual = false) => {
     if (isManual) setRetrying(true);
     try {
       await api.get('/health', { timeout: 4000 });
       setBackendOnline(true);
+      fetchStats();
     } catch {
       setBackendOnline(false);
     } finally {
       if (isManual) setRetrying(false);
     }
-  }, []);
+  }, [fetchStats]);
 
-  // Poll every 10 s
+  // Poll health every 10 s
   useEffect(() => {
     checkHealth();
     healthRef.current = setInterval(() => checkHealth(), 10_000);
@@ -53,11 +89,7 @@ export default function Dashboard() {
   const refreshData = () => {
     setSec(0);
     checkHealth(true);
-    setMetrics({
-      users: Math.floor(1280 + Math.random() * 10),
-      granted: Math.floor(8460 + Math.random() * 20),
-      blocked: Math.floor(130 + Math.random() * 10),
-    });
+    refetchAudit();
   };
 
   useEffect(() => {
@@ -136,19 +168,19 @@ export default function Dashboard() {
               label="Total users"
               value={metrics.users.toLocaleString()}
               accent="purple"
-              delta={{ value: '↑ 24', up: true, text: 'this week' }}
+              delta={{ value: 'Realtime', up: true, text: 'data' }}
             />
             <MetricCard 
               label="Consents granted"
               value={metrics.granted.toLocaleString()}
               accent="teal"
-              delta={{ value: '↑ 312', up: true, text: 'today' }}
+              delta={{ value: 'Live', up: true, text: 'syncing' }}
             />
             <MetricCard 
               label="Inferences blocked"
               value={metrics.blocked.toLocaleString()}
               accent="coral"
-              delta={{ value: '↑ 18', up: false, text: 'today' }}
+              delta={{ value: 'Kafka', up: false, text: 'broadcasted' }}
             />
             <MetricCard 
               label="Avg response time"
@@ -215,48 +247,27 @@ export default function Dashboard() {
                     </tr>
                   </thead>
                   <tbody>
-                    <tr>
-                      <td><span className="uuid">550e8400</span></td>
-                      <td><span className="gate-tag">inference</span></td>
-                      <td>analytics</td>
-                      <td><span className="pill allow">ALLOW</span></td>
-                      <td>2s ago</td>
-                    </tr>
-                    <tr>
-                      <td><span className="uuid">a716-4466</span></td>
-                      <td><span className="gate-tag">inference</span></td>
-                      <td>inference</td>
-                      <td><span className="pill block">BLOCKED</span></td>
-                      <td>14s ago</td>
-                    </tr>
-                    <tr>
-                      <td><span className="uuid">123e4567</span></td>
-                      <td><span className="gate-tag">dataset</span></td>
-                      <td>training</td>
-                      <td><span className="pill allow">ALLOW</span></td>
-                      <td>1m ago</td>
-                    </tr>
-                    <tr>
-                      <td><span className="uuid">e89b-12d3</span></td>
-                      <td><span className="gate-tag">training</span></td>
-                      <td>model_training</td>
-                      <td><span className="pill warn">QUARANTINE</span></td>
-                      <td>3m ago</td>
-                    </tr>
-                    <tr>
-                      <td><span className="uuid">426614174</span></td>
-                      <td><span className="gate-tag">drift</span></td>
-                      <td>analytics</td>
-                      <td><span className="pill block">FLAGGED</span></td>
-                      <td>7m ago</td>
-                    </tr>
-                    <tr>
-                      <td><span className="uuid">550e8400</span></td>
-                      <td><span className="gate-tag">inference</span></td>
-                      <td>inference</td>
-                      <td><span className="pill allow">ALLOW</span></td>
-                      <td>12m ago</td>
-                    </tr>
+                    {recentEvents.length === 0 ? (
+                      <tr>
+                        <td colSpan={5} style={{ textAlign: 'center', padding: '18px 0', color: 'var(--muted2)', fontSize: '12px' }}>
+                          {backendOnline === false
+                            ? 'Backend offline — no audit data'
+                            : 'Loading recent events…'}
+                        </td>
+                      </tr>
+                    ) : recentEvents.map((e) => (
+                      <tr key={e.id}>
+                        <td><span className="uuid">{e.user_id.substring(0, 8)}</span></td>
+                        <td><span className="gate-tag">{e.gate_name.replace('_gate', '')}</span></td>
+                        <td>{e.purpose ?? '—'}</td>
+                        <td>
+                          <span className={`pill ${e.action_taken === 'ALLOW' ? 'allow' : 'block'}`}>
+                            {e.action_taken}
+                          </span>
+                        </td>
+                        <td>{relTime(e.event_time)}</td>
+                      </tr>
+                    ))}
                   </tbody>
                 </table>
               </div>
@@ -321,31 +332,25 @@ export default function Dashboard() {
               </div>
               <div className="card-body">
                 <div className="consent-bars">
-                  <div className="consent-row">
-                    <div className="consent-label">analytics</div>
-                    <div className="consent-track"><div className="consent-fill" style={{ width: '82%', background: 'linear-gradient(90deg,var(--accent2),rgba(62,207,178,0.4))' }}></div></div>
-                    <div className="consent-count">82%</div>
-                  </div>
-                  <div className="consent-row">
-                    <div className="consent-label">inference</div>
-                    <div className="consent-track"><div className="consent-fill" style={{ width: '71%', background: 'linear-gradient(90deg,var(--accent),rgba(124,109,250,0.4))' }}></div></div>
-                    <div className="consent-count">71%</div>
-                  </div>
-                  <div className="consent-row">
-                    <div className="consent-label">training</div>
-                    <div className="consent-track"><div className="consent-fill" style={{ width: '59%', background: 'linear-gradient(90deg,var(--amber),rgba(245,166,35,0.4))' }}></div></div>
-                    <div className="consent-count">59%</div>
-                  </div>
-                  <div className="consent-row">
-                    <div className="consent-label">pii</div>
-                    <div className="consent-track"><div className="consent-fill" style={{ width: '44%', background: 'linear-gradient(90deg,var(--accent3),rgba(250,109,138,0.4))' }}></div></div>
-                    <div className="consent-count">44%</div>
-                  </div>
-                  <div className="consent-row">
-                    <div className="consent-label">webhook</div>
-                    <div className="consent-track"><div className="consent-fill" style={{ width: '91%', background: 'linear-gradient(90deg,var(--accent2),rgba(62,207,178,0.4))' }}></div></div>
-                    <div className="consent-count">91%</div>
-                  </div>
+                  {PURPOSE_CONFIG.map(p => {
+                    const count = metrics.purposes[p.key] || 0;
+                    const pct = metrics.users > 0 ? Math.round((count / metrics.users) * 100) : 0;
+                    return (
+                      <div className="consent-row" key={p.key}>
+                        <div className="consent-label">{p.key}</div>
+                        <div className="consent-track">
+                          <div 
+                            className="consent-fill" 
+                            style={{ 
+                              width: `${pct}%`, 
+                              background: `linear-gradient(90deg,${p.color},${p.gradient})` 
+                            }}
+                          ></div>
+                        </div>
+                        <div className="consent-count">{pct}%</div>
+                      </div>
+                    );
+                  })}
                 </div>
               </div>
             </div>
@@ -357,25 +362,31 @@ export default function Dashboard() {
               </div>
               <div className="card-body">
                 <div style={{ display: 'flex', alignItems: 'baseline', gap: '8px', marginBottom: '1rem' }}>
-                  <span style={{ fontFamily: 'var(--font-display)', fontSize: '1.8rem', color: 'var(--accent)' }}>2,841</span>
+                  <span style={{ fontFamily: 'var(--font-display)', fontSize: '1.8rem', color: 'var(--accent)' }}>
+                    {metrics.checks_24h_total.toLocaleString()}
+                  </span>
                   <span style={{ fontSize: '12px', color: 'var(--muted)' }}>total checks</span>
                 </div>
                 <div className="spark-row" id="sparkline">
-                  {[18,24,31,22,19,28,35,42,38,51,47,63,71,58,66,74,82,69,77,85,91,78,88,94].map((v, i, arr) => (
-                    <div 
-                      key={i}
-                      className={`spark-bar${v > 80 ? ' peak' : v > 60 ? ' hi' : ''}`}
-                      style={{ height: `${(v / Math.max(...arr)) * 100}%` }}
-                      title={`${v} checks`}
-                    />
-                  ))}
+                  {metrics.checks_sparkline.map((v, i, arr) => {
+                    const max = Math.max(...arr) || 1;
+                    const pct = (v / max) * 100;
+                    return (
+                      <div 
+                        key={i}
+                        className={`spark-bar${pct > 80 ? ' peak' : pct > 60 ? ' hi' : ''}`}
+                        style={{ height: `${Math.max(2, pct)}%` }}
+                        title={`${v} checks`}
+                      />
+                    );
+                  })}
                 </div>
                 <div style={{ display: 'flex', justifyContent: 'space-between', marginTop: '.5rem', fontSize: '10px', color: 'var(--muted2)' }}>
-                  <span>00:00</span><span>06:00</span><span>12:00</span><span>18:00</span><span>now</span>
+                  <span>00:00(T-24h)</span><span>06:00</span><span>12:00</span><span>18:00</span><span>now</span>
                 </div>
                 <div style={{ display: 'flex', gap: '16px', marginTop: '1rem' }}>
-                  <div style={{ fontSize: '11px', color: 'var(--muted)' }}>Allowed <span style={{ color: 'var(--accent2)', fontWeight: 500 }}>2,704</span></div>
-                  <div style={{ fontSize: '11px', color: 'var(--muted)' }}>Blocked <span style={{ color: 'var(--accent3)', fontWeight: 500 }}>137</span></div>
+                  <div style={{ fontSize: '11px', color: 'var(--muted)' }}>Allowed <span style={{ color: 'var(--accent2)', fontWeight: 500 }}>{metrics.checks_24h_allowed.toLocaleString()}</span></div>
+                  <div style={{ fontSize: '11px', color: 'var(--muted)' }}>Blocked <span style={{ color: 'var(--accent3)', fontWeight: 500 }}>{metrics.checks_24h_blocked.toLocaleString()}</span></div>
                 </div>
               </div>
             </div>

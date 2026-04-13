@@ -11,7 +11,7 @@ from __future__ import annotations
 
 import logging
 from datetime import datetime, timezone
-from typing import Annotated
+from typing import Annotated, List
 from uuid import UUID
 
 import asyncpg
@@ -44,6 +44,43 @@ def _get_pool(request: Request) -> asyncpg.Pool:
 def _get_redis(request: Request):
     return request.app.state.redis_client
 
+
+# ── GET /consent ──────────────────────────────────────────────────────────────
+
+@router.get(
+    "",
+    response_model=List[ConsentRecord],
+    status_code=status.HTTP_200_OK,
+    summary="List all consent records",
+    description="Returns the 1000 most recent consent records across all users.",
+)
+async def list_consents(
+    pool: asyncpg.Pool = Depends(_get_pool),
+) -> List[ConsentRecord]:
+    sql = """
+        SELECT id, user_id, data_type, purpose, status, updated_at
+        FROM consent_records
+        ORDER BY updated_at DESC
+        LIMIT 1000
+    """
+    try:
+        async with pool.acquire() as conn:
+            rows = await conn.fetch(sql)
+    except asyncpg.PostgresError as exc:
+        logger.error("DB error listing consents: %s", exc)
+        raise HTTPException(status_code=500, detail="Database error")
+
+    return [
+        ConsentRecord(
+            id=row["id"],
+            user_id=row["user_id"],
+            data_type=row["data_type"],
+            purpose=row["purpose"],
+            status=ConsentStatus(row["status"]),
+            updated_at=row["updated_at"],
+        )
+        for row in rows
+    ]
 
 # ── POST /consent ──────────────────────────────────────────────────────────────
 

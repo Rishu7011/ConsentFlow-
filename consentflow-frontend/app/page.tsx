@@ -28,7 +28,7 @@ export default function Home() {
   };
 
   useEffect(() => {
-    let ctx = gsap.context(() => {
+    const ctx = gsap.context(() => {
       const observer = new IntersectionObserver((entries) => {
         entries.forEach(entry => {
           if (entry.isIntersecting) {
@@ -231,7 +231,7 @@ export default function Home() {
               <div className="gate-icon" style={{ background: 'rgba(124,109,250,0.12)' }}>🗃️</div>
               <div className="gate-num">Gate 01</div>
               <div className="gate-title">Dataset gate</div>
-              <div className="gate-desc">Per-record consent check before MLflow registration. Revoked users' PII is anonymized via Microsoft Presidio before any data lands in your feature store.</div>
+              <div className="gate-desc">Per-record consent check before MLflow registration. Revoked users&apos; PII is anonymized via Microsoft Presidio before any data lands in your feature store.</div>
               <span className="gate-tag">Presidio · MLflow artifacts</span>
             </motion.div>
             <motion.div className="gate-card" onMouseMove={handleMouseMove} variants={fadeUpVariant}>
@@ -300,6 +300,7 @@ export default function Home() {
                 }}
               >
                 {tech.icon && (
+                  // eslint-disable-next-line @next/next/no-img-element
                   <img src={tech.icon.startsWith('http') ? tech.icon : `https://cdn.simpleicons.org/${tech.icon}/white`} alt={tech.name} className={`w-3.5 h-3.5 opacity-70 ${tech.icon.startsWith('http') ? 'rounded-full' : ''}`} />
                 )}
                 {tech.name}

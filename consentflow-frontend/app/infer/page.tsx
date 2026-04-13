@@ -15,7 +15,9 @@ export default function InferenceTester() {
 
   useEffect(() => {
     const saved = sessionStorage.getItem('active_user_id');
-    if (saved) setUuid(saved);
+    if (saved) {
+      setTimeout(() => setUuid(saved), 0);
+    }
   }, []);
 
   const UUID_RE = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
@@ -24,10 +26,7 @@ export default function InferenceTester() {
     setUuid(e.target.value);
   };
 
-  const handleUuidBlur = (e: React.FocusEvent<HTMLInputElement>) => {
-    // Persist only when the user leaves the field, not on every keystroke
-    sessionStorage.setItem('active_user_id', e.target.value);
-  };
+
 
   const fireInference = async () => {
     const trimmedUuid = uuid.trim();
@@ -47,13 +46,16 @@ export default function InferenceTester() {
     setErrorMsg('');
 
     try {
-      const res = await api.post('/infer/predict', { prompt }, {
-        headers: { 'X-User-ID': uuid }
+      // POST /api/infer → proxied to POST /infer/predict
+      // X-User-ID is attached automatically by the axios interceptor from sessionStorage
+      const res = await api.post('/infer', { prompt }, {
+        headers: { 'X-User-ID': trimmedUuid }
       });
       setStatus('allowed');
       setPrediction(res.data.prediction || 'Model produced output successfully.');
-    } catch (err: any) {
-      const code = err.response?.status;
+    } catch (err) {
+      const e = err as any;
+      const code = e.response?.status;
       if (code === 403) {
         setStatus('blocked');
       } else if (code === 400 || code === 422) {
