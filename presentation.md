@@ -1,322 +1,221 @@
-# ConsentFlow — Prototype Presentation
+# ConsentFlow — Presentation Notes
 
-> **Consent-aware middleware that enforces user revocation at every stage of the AI pipeline.**
-
----
-
-## 1. The Problem
-
-Modern AI systems collect user consent at the **UI layer** — but ignore it everywhere else.
-
-| Where Consent Is Collected | Where It's Ignored |
-|----------------------------|--------------------|
-| Website cookie banners     | Feature stores     |
-| Consent Management Platforms (CMPs) | Model training pipelines |
-| Mobile app permission prompts | Inference endpoints |
-| OneTrust workflows         | Drift monitoring windows |
-
-### The Gap
-
-Once data enters a training corpus, model registry, or inference endpoint:
-- ❌ Consent revocations are **delayed** or **never propagated**
-- ❌ Teams train on **stale personal data** from users who opted out
-- ❌ Systems serve **inference to users** who revoked consent
-- ❌ Drift windows include **disallowed samples** silently
-
-This creates **legal exposure** (GDPR, CCPA), **governance gaps**, and **broken user trust**.
+> Hackathon demo deck reference. Use alongside the live app at `http://localhost:3001`.
 
 ---
 
-## 2. ConsentFlow — The Solution
+## Elevator Pitch (30 seconds)
 
-ConsentFlow is a **Python middleware layer** that sits between your consent source and every AI pipeline execution point — enforcing revocations in real time, across all stages.
+ConsentFlow solves the gap between consent management platforms and AI pipelines. When a user revokes consent in OneTrust or your front-end, what actually happens to their data inside your ML pipeline? With ConsentFlow, the answer is: **everything stops, everywhere, immediately.** One revocation propagates from your database to a Redis cache to a Kafka event bus — blocking inference in under 5 milliseconds, quarantining in-flight training runs, and flagging their data in every future drift window.
+
+---
+
+## Problem Statement
+
+GDPR, CCPA, and AI Act all require consent withdrawal to propagate "without undue delay." But modern ML pipelines are complex:
+
+- Data may be cached
+- Models may be mid-training on a GPU cluster
+- Inference services check a stale in-memory flag
+- Drift monitors scan past data that includes revoked users
+
+Existing CMPs (OneTrust, Cookiebot) issue a webhook and consider the job done. What happens inside the pipeline is left to the engineering team — and it almost always has gaps.
+
+**ConsentFlow closes those gaps with four enforcement gates.**
+
+---
+
+## Solution: Four Gates
 
 ```
-  User Revokes Consent
-         │
-         ▼
-  ┌──────────────────────┐
-  │  ConsentFlow API      │  ◄─── OneTrust / CMP Webhook
-  │  (FastAPI + Redis     │
-  │   + PostgreSQL)       │
-  └──────────┬───────────┘
-             │  Kafka: consent.revoked
-             ▼
-  ┌──────────────────────────────────────────────────┐
-  │         Pipeline Enforcement Gates               │
-  │                                                  │
-  │  1. Dataset Gate  ──── blocks / anonymizes PII   │
-  │  2. Training Gate ──── quarantines MLflow runs   │
-  │  3. Inference Gate ─── blocks 403 in real-time   │
-  │  4. Drift Monitor ──── flags revoked samples     │
-  └──────────────────────────────────────────────────┘
-             │
-             ▼
-  ┌──────────────────────────────────┐
-  │  Observability Stack             │
-  │  OpenTelemetry → Grafana         │
-  │  Audit Trail API                 │
-  └──────────────────────────────────┘
+User revokes consent
+        │
+        ▼
+ ┌──────────────────┐
+ │  ConsentFlow API  │  FastAPI + PostgreSQL + Redis + Kafka
+ └──────────────────┘
+        │
+        ├── Dataset Gate      PII scrub before MLflow registration (Presidio)
+        ├── Training Gate     Quarantine in-flight runs via Kafka (MLflow tags)
+        ├── Inference Gate    ASGI middleware — 403 in <5ms (Redis cache)
+        └── Drift Monitor     Evidently AI — flag revoked samples, alert severity
 ```
 
+### Gate 01 — Dataset
+
+**Problem:** Training data is registered into MLflow before anyone checks consent status for the specific data type.
+
+**Solution:** `register_dataset_with_consent_check()` iterates every record before MLflow registration. Revoked-user records are passed through Presidio's `AnalyzerEngine` — names, emails, phone numbers, IPs replaced with `<REDACTED>`. The cleaned dataset is logged as an MLflow artifact with per-record consent metrics.
+
+**Tech:** Microsoft Presidio 2.2 · spaCy `en_core_web_lg` · MLflow 2.13
+
 ---
 
-## 3. Architecture Deep Dive
+### Gate 02 — Training
 
-### Core Stack
+**Problem:** A training job starts before the revocation webhook arrives. It runs for hours using a user's data.
 
-| Component        | Role |
-|------------------|------|
-| **FastAPI**      | REST API, ASGI middleware, lifespan management |
-| **PostgreSQL**   | Source of truth for consent records + audit log |
-| **Redis**        | Low-latency consent cache (60s TTL), hot-path lookups |
-| **Kafka**        | Event stream: `consent.revoked` → downstream gates |
-| **MLflow**       | Dataset gate artifacts, training run quarantine tags |
-| **Presidio**     | PII detection and anonymization in dataset gate |
-| **Evidently AI** | Drift detection reports with consent-tagged samples |
-| **OpenTelemetry**| Span instrumentation across all gate decisions |
-| **Grafana**      | Dashboarding over exported Prometheus metrics |
+**Solution:** The `TrainingGateConsumer` (async Kafka consumer, group `consentflow-training-gate`) listens to `consent.revoked`. On each event it calls `mlflow.search_runs()` for runs tagged with the user's ID and applies `consent_status=quarantined` tags with a reason string and timestamp. No data deletion, no revert — that's left to model governance policy. The gate does the minimum: flags and stops propagation.
 
-### Data Flow on Revocation
+**Tech:** Apache Kafka · aiokafka · MLflow run tagging
+
+---
+
+### Gate 03 — Inference
+
+**Problem:** Your LLM API is happily serving predictions to a user after they revoked consent.
+
+**Solution:** `ConsentMiddleware` is a Starlette `BaseHTTPMiddleware` mounted at `/infer`. Before **every** request hits a handler:
+
+1. Extract `user_id` from `X-User-ID` header (or JSON body)
+2. Check Redis cache → cache hit = decision in <1 ms
+3. Cache miss → PostgreSQL authoritative lookup
+4. Fail-closed: any exception returns `503` (never lets a revoked user through on infra error)
+
+| Status | Response Code |
+|--------|---------------|
+| Consent granted | 200 — pass-through |
+| Consent revoked | 403 — blocked |
+| Missing user ID | 400 — invalid |
+| Infra failure | 503 — fail-closed |
+
+**Tech:** FastAPI ASGI · Starlette `BaseHTTPMiddleware` · Redis 7
+
+---
+
+### Gate 04 — Drift Monitor
+
+**Problem:** Your drift monitoring service scans production data including samples from users who have since revoked consent.
+
+**Solution:** `ConsentAwareDriftMonitor` wraps Evidently AI. Before computing drift:
+- Tags every sample with `_consent_status` by calling `is_user_consented()` per row
+- Strips the column from Evidently input (internal annotation only)
+- Counts revoked-status samples in the current window
+- Fires `DriftAlert` entries: severity `warning` (<5 revoked rows), `critical` (≥5)
+
+**Tech:** Evidently AI 0.4 · pandas · `is_user_consented()` SDK
+
+---
+
+## Technical Depth
+
+### Data flow (sequence)
 
 ```
-POST /webhook/consent-revoke
-    │
-    ├─► Upsert consent record in PostgreSQL
-    ├─► Invalidate Redis cache key
-    └─► Publish to Kafka: consent.revoked
-              │
-              ├─► Training Gate Consumer
-              │     └─► Tag MLflow runs: consent_status=quarantined
-              │
-              ├─► Inference Gate (ASGI)
-              │     └─► Next request → 403 Forbidden
-              │
-              ├─► Dataset Gate (on next registration)
-              │     └─► Anonymize revoked user records via Presidio
-              │
-              └─► Drift Monitor (on next window)
-                    └─► Flag and alert on revoked samples
+CMP webhook
+    → POST /webhook/consent-revoke (camelCase OneTrust payload)
+    → Validate userId UUID + consentStatus="revoked"
+    → UPSERT consent_records (idempotent, ON CONFLICT DO UPDATE)
+    → INVALIDATE Redis key consent:{user_id}:{purpose}
+    → PUBLISH to Kafka topic consent.revoked (acks=all, key=user_id)
+    → Training Gate consumer: quarantine matching MLflow runs
+    → Next /infer request for this user: Redis hit → 403
 ```
 
----
+### Kafka guarantees
 
-## 4. The Four Enforcement Gates
+- `acks="all"` — producer waits for all in-sync replicas
+- Partition key = `user_id` — ordering guaranteed per user
+- Consumer group `consentflow-training-gate` — at-least-once delivery
+- `auto_offset_reset="earliest"` — catch events after consumer restart
 
-### Gate 1 — Dataset Gate
-**Problem:** Datasets registered in MLflow may contain PII for users who've revoked consent.
+### Redis cache design
 
-**How it works:**
-1. Iterates every record before dataset registration
-2. Resolves consent via Redis → PostgreSQL fallback
-3. Granted → passes record unchanged
-4. Revoked → runs **Microsoft Presidio** to anonymize PII fields
-5. Logs `consented_count`, `anonymized_count`, `anonymized_ratio` to MLflow
-6. Saves cleaned dataset as an MLflow artifact
+- Key: `consent:{user_id}:{purpose}` (purpose-scoped)
+- Value: JSON `{ "user_id", "purpose", "status", "updated_at" }`
+- Write-through invalidation on every consent write (not set-on-read)
+- TTL: 60 s (configurable via `CONSENT_CACHE_TTL`)
 
----
+### Fail-closed pattern
 
-### Gate 2 — Training Gate
-**Problem:** MLflow model training runs may be mid-flight when a user revokes.
-
-**How it works:**
-1. Kafka consumer polls `consent.revoked` topic
-2. Searches MLflow for any run tagged with that `user_id`
-3. Tags the run: `consent_status=quarantined`, `revoked_user`, `quarantine_reason`, `quarantine_timestamp`
-4. Records a `QuarantineRecord` with Kafka offset metadata for auditability
+Every gate defaults to **deny**:
+- SDK: `is_user_consented()` returns `False` if no record exists (deny by default)
+- Inference gate: any infra exception → 503 (never passes through on error)
+- Dataset gate: records missing `user_id` treated as revoked
+- Monitoring gate: Presidio/Redis error → sample tagged "revoked"
 
 ---
 
-### Gate 3 — Inference Gate
-**Problem:** Live inference endpoints serve predictions to users who may have revoked consent.
+## Observability
 
-**How it works:**
-1. Mounted as ASGI middleware on the `/infer` prefix
-2. Resolves `user_id` from `X-User-ID` header → JSON body fallback
-3. **Fail-closed semantics:**
-   - Missing user → `400 Bad Request`
-   - Revoked consent → `403 Forbidden`
-   - Service unavailable → `503 Service Unavailable`
-4. Granted → proxies request to handler
+### OpenTelemetry
+- Every gate wrapped in an OTel span (`{gate_name}.check`)
+- Span attributes: `user_id`, `consent_status`, `action_taken`, `purpose`, `path`
+- OTLP gRPC exporter → OTel Collector → Grafana Explore
+- `trace_id` stored in `audit_log` — click trace → span link in Grafana
 
-> Also ships a **LangChain callback variant** (`langchain_gate.py`) for LLM pipelines.
-
----
-
-### Gate 4 — Drift Monitor
-**Problem:** Evidently drift monitoring windows silently use data from revoked users.
-
-**How it works:**
-1. Tags each sample in the monitoring window with `_consent_status`
-2. Runs Evidently `DataDriftPreset` analysis
-3. Scans window for revoked samples and emits `DriftAlert` objects
-4. **Severity levels:** `warning` (< 5 revoked) / `critical` (≥ 5 revoked)
-5. Returns `DriftCheckResult`: tagged DataFrame, alert list, consent counts
-
----
-
-## 5. API Overview
-
-| Method | Endpoint | Description |
-|--------|----------|-------------|
-| `GET`  | `/health` | Liveness check: Postgres + Redis |
-| `POST` | `/users` | Register a new user (returns UUID for consent requests) |
-| `GET`  | `/users/{user_id}` | Look up a user by UUID |
-| `POST` | `/consent` | Upsert a consent record |
-| `POST` | `/consent/revoke` | Revoke all consent for a user + purpose |
-| `GET`  | `/consent/{user_id}/{purpose}` | Resolve effective consent status |
-| `POST` | `/webhook/consent-revoke` | OneTrust-style ingress (DB + Cache + Kafka) |
-| `POST` | `/infer/predict` | Consent-gated dummy inference endpoint |
-| `GET`  | `/audit/trail` | Query enforcement audit log |
-
----
-
-## 6. Live Demo Flow
-
-Run these steps against a live instance (`docker compose up --build`):
-
-> **Tip:** The demo user `550e8400-e29b-41d4-a716-446655440000` is seeded automatically by migration `003`. You can skip step 1 if using that UUID.
-
-**Step 0 — Register a user (needed for any new UUID):**
-```bash
-curl -X POST http://localhost:8000/users \
-  -H "Content-Type: application/json" \
-  -d '{"email": "alice@example.com"}'
-# → 201: { "id": "<uuid>", ... }
+### Audit log
+PostgreSQL `audit_log` table captures every gate decision:
 ```
-
-**Step 1 — Grant consent:**
-```bash
-curl -X POST http://localhost:8000/consent \
-  -H "Content-Type: application/json" \
-  -d '{
-    "user_id": "550e8400-e29b-41d4-a716-446655440000",
-    "data_type": "pii",
-    "purpose": "model_training",
-    "status": "granted"
-  }'
+id | event_time | user_id | gate_name | action_taken | consent_status | purpose | metadata | trace_id
 ```
+Queryable via `GET /audit/trail?gate_name=inference_gate&user_id=...&limit=100`
 
-**Step 2 — Fire a revocation webhook:**
-```bash
-curl -X POST http://localhost:8000/webhook/consent-revoke \
-  -H "Content-Type: application/json" \
-  -d '{
-    "userId": "550e8400-e29b-41d4-a716-446655440000",
-    "purpose": "model_training",
-    "consentStatus": "revoked",
-    "timestamp": "2026-04-08T12:00:00Z"
-  }'
-```
-
-**Step 3 — Inference is now blocked:**
-```bash
-curl -X POST http://localhost:8000/infer/predict \
-  -H "X-User-ID: 550e8400-e29b-41d4-a716-446655440000" \
-  -d '{"prompt": "hello"}'
-# → 403 Forbidden: consent revoked
-```
-
-**Step 4 — Check the audit trail:**
-```bash
-curl "http://localhost:8000/audit/trail?user_id=550e8400-e29b-41d4-a716-446655440000"
-```
+### Grafana
+- Provisioned dashboards in `grafana/dashboards/`
+- Prometheus scrape endpoint on OTel Collector port 8889
+- Zero-login (anonymous admin mode) for hackathon demo
 
 ---
 
-## 7. Observability
+## Live Demo Sequence (2 minutes)
 
-All gate decisions emit **OpenTelemetry spans** and write to the **audit_log** database table simultaneously.
+| Step | What to show | Expected result |
+|------|-------------|-----------------|
+| 1 | `http://localhost:3001` | Landing — animated flow diagram, 4 gate cards, tech stack |
+| 2 | Click **Live Demo** → Dashboard | Metric cards: users, consents, blocked count, <5ms response |
+| 3 | Navigate to **Users** | Demo user visible; click "Set as active" |
+| 4 | Navigate to **Inference Tester** | UUID auto-fills; click "Fire /infer/predict" → ✅ green "Allowed" |
+| 5 | Navigate to **Webhook** | Pre-filled OneTrust payload; click "Simulate Revocation" → `kafka_published: true` |
+| 6 | Navigate back to **Inference Tester** | Click "Fire /infer/predict" → 🔴 red "Blocked — consent revoked (403)" |
+| 7 | Navigate to **Dashboard** | `blocked` counter incremented; audit table shows new block event |
+| 8 | Navigate to **Audit Trail** | Full trace: `inference_gate / blocked / revoked` with timestamp |
 
-| Span Name | Gate |
-|-----------|------|
-| `dataset_gate.check` | Dataset Gate |
-| `inference_gate.check` | Inference Gate |
-| `training_gate.quarantine` | Training Gate |
-| `monitoring_gate.check` | Drift Monitor |
-
-**Common span attributes:** `gate_name` · `consent_status` · `action_taken` · `user_id` · `trace_id`
-
-### Service URLs (Local)
-
-| Service | URL |
-|---------|-----|
-| API Docs (Swagger) | http://localhost:8000/docs |
-| Grafana Dashboard | http://localhost:3000 |
-| Prometheus Metrics | http://localhost:8889/metrics |
-| OTel Collector Health | http://localhost:13133 |
+**Key moment:** Steps 4 → 6 — the audience watches a `200 OK` turn into a `403 Forbidden` after a single webhook call. That's the core demo.
 
 ---
 
-## 8. Technology Stack Summary
+## Key Differentiators
 
-```
-Language:       Python 3.12
-Framework:      FastAPI 0.115+ / Uvicorn (ASGI)
-Database:       PostgreSQL 16 (asyncpg async driver)
-Cache:          Redis 7 (hiredis, 60s TTL)
-Event Stream:   Apache Kafka (aiokafka async)
-ML Tracking:    MLflow 2.13+
-PII Scrubbing:  Microsoft Presidio (spaCy NLP backend)
-Drift Monitor:  Evidently AI 0.4+
-Observability:  OpenTelemetry SDK + OTLP → Grafana
-Packaging:      uv + hatchling (pyproject.toml)
-Testing:        pytest + pytest-asyncio, 7 test modules
-Containerized:  Docker Compose (full stack)
-```
+| Feature | ConsentFlow | Typical implementation |
+|---------|-------------|----------------------|
+| Revocation latency | <5 ms (Redis cache hit) | Minutes to hours (batch job) |
+| Training enforcement | Kafka → MLflow quarantine tag | None / manual |
+| Fail-closed behavior | Yes (infra error → deny) | Often fail-open |
+| Audit trail | PostgreSQL + OTel trace link | None |
+| Drift monitor integration | Evidently with consent tagging | None |
+| Open source | Yes (MIT) | Proprietary CMP SDK |
 
 ---
 
-## 9. Project Structure
+## Judging Criteria Alignment
 
-```
-ConsentFlow-/
-├── consentflow/
-│   ├── app/                   # FastAPI app, config, DB, Kafka, routers
-│   │   └── routers/           # consent, users, webhook, infer, audit
-│   ├── migrations/            # SQL schema files (auto-applied at startup)
-│   │   ├── 001_init.sql       # users + consent_records schema
-│   │   ├── 002_audit_log.sql  # audit_log schema
-│   │   └── 003_seed_demo_user.sql  # seeds demo UUID (idempotent)
-│   ├── sdk.py                 # Consent lookup: Redis → PostgreSQL
-│   ├── dataset_gate.py        # Gate 1: MLflow dataset anonymization
-│   ├── training_gate.py       # Gate 2: Kafka consumer → MLflow quarantine
-│   ├── inference_gate.py      # Gate 3: ASGI middleware, fail-closed
-│   ├── monitoring_gate.py     # Gate 4: Evidently drift wrapper
-│   ├── anonymizer.py          # Presidio PII scrubber
-│   └── otel_*.py              # OTel instrumentation per gate
-├── grafana/                   # Provisioned Grafana dashboards + datasources
-├── tests/                     # 7 test modules (unit + integration-style)
-├── docker-compose.yml         # Full local stack
-├── Dockerfile                 # App container
-└── pyproject.toml             # Dependencies + tooling config
-```
+**Technical innovation:**
+- Novel ASGI middleware pattern for real-time consent enforcement
+- Kafka-driven cross-gate propagation vs. polling approaches
+- Presidio PII scrub integrated directly into MLflow registration gate
+
+**Privacy/compliance relevance:**
+- GDPR Article 7(3): right to withdraw consent "without undue delay" → sub-5ms enforcement
+- GDPR Article 17: right to erasure → anonymization at dataset gate
+- EU AI Act Article 10: data governance requirements → full audit trail per gate decision
+
+**Completeness:**
+- End-to-end: from webhook to inference block, with audit trail
+- Full dashboard UI demonstrating every gate
+- Test suite for every gate
+
+**Demo-ability:**
+- 2-minute demo script requiring only a web browser
+- Demo user pre-seeded (no setup needed)
+- Webhook simulator built into the UI
 
 ---
 
-## 10. What Makes ConsentFlow Different
+## Tech Stack Summary
 
-| Approach | Industry Norm | ConsentFlow |
-|----------|--------------|-------------|
-| Consent enforcement | UI-only (frontend toggle) | Deep pipeline (4 gates) |
-| Revocation propagation | Manual / delayed | Real-time via Kafka |
-| Inference blocking | Not implemented | ASGI middleware, fail-closed |
-| Dataset compliance | Point-in-time snapshot | Per-record consent check |
-| Training runs | Not addressed | Quarantine-tagged in MLflow |
-| Drift monitoring | Unaware of consent | Revoked-sample alerts + severity |
-| Auditability | None / custom logs | Unified audit_log + OTel traces |
+**Backend:** FastAPI · Python 3.12 · PostgreSQL 16 · Redis 7 · Apache Kafka (Confluent 7.6) · aiokafka · asyncpg · MLflow 2.13 · Microsoft Presidio · spaCy · Evidently AI · OpenTelemetry · Grafana
 
----
+**Frontend:** Next.js 16 (App Router) · React 19 · TypeScript · TailwindCSS v4 · TanStack Query v5 · Framer Motion · GSAP · Lucide React
 
-## 11. Next Steps / Roadmap
-
-- [ ] **Multi-purpose consent** — allow a single user to have different consent states per purpose simultaneously surfaced in a unified dashboard
-- [ ] **Frontend Next.js dashboard** — visual consent management, audit trail viewer, webhook simulator, and drift alert panel
-- [ ] **Async OTel flush** — batch span export for higher throughput environments
-- [ ] **GDPR right-to-erasure flow** — extend dataset gate to hard-delete PII on erasure requests, not just anonymize
-- [ ] **REST SDK** — publish `consentflow-sdk` as a standalone pip package for third-party integration
-- [ ] **Production hardening** — mTLS for Kafka, Vault integration for secrets, HA Redis/Postgres configs
-
----
-
-*ConsentFlow v0.2.0 — MIT License — [github.com/Rishu7011/ConsentFlow-](https://github.com/Rishu7011/ConsentFlow-)*
+**Infrastructure:** Docker Compose (8 services) · OTel Collector · multi-stage Dockerfile

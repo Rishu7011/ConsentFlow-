@@ -1,211 +1,67 @@
 # ConsentFlow
 
-> Consent-aware middleware that enforces user revocation at every stage of the AI pipeline — training, inference, dataset registration, and drift monitoring.
+> **Real-time consent enforcement across your entire AI pipeline.**
 
-![Python](https://img.shields.io/badge/python-3.12-blue?logo=python&logoColor=white)
-![FastAPI](https://img.shields.io/badge/FastAPI-0.100%2B-009688?logo=fastapi&logoColor=white)
-![Docker](https://img.shields.io/badge/docker-compose-2496ED?logo=docker&logoColor=white)
-![Kafka](https://img.shields.io/badge/kafka-confluent%207.6-231F20?logo=apachekafka&logoColor=white)
-![License](https://img.shields.io/badge/license-MIT-green)
-![Build](https://img.shields.io/badge/build-passing-brightgreen)
+[![Python](https://img.shields.io/badge/Python-3.12-blue)](https://python.org)
+[![FastAPI](https://img.shields.io/badge/FastAPI-0.115-green)](https://fastapi.tiangolo.com)
+[![License: MIT](https://img.shields.io/badge/License-MIT-yellow)](LICENSE)
 
----
-
-## Table of contents
-
-- [Problem & solution](#problem--solution)
-- [Architecture overview](#architecture-overview)
-- [Project structure](#project-structure)
-- [Prerequisites](#prerequisites)
-- [Setup & installation](#setup--installation)
-- [Platform notes (Mac / Apple Silicon)](#platform-notes-mac--apple-silicon)
-- [Quick demo](#quick-demo)
-- [Environment variables](#environment-variables)
-- [API reference](#api-reference)
-- [Consent enforcement pipeline](#consent-enforcement-pipeline)
-- [Kafka topics](#kafka-topics)
-- [Database schema](#database-schema)
-- [Observability](#observability)
-- [Running tests](#running-tests)
-- [Contributing](#contributing)
-- [License](#license)
+ConsentFlow is a middleware layer that enforces user consent revocation across an AI pipeline in real time. When a user revokes consent, ConsentFlow propagates the revocation instantly — from API to cache to event bus to every gate in your ML lifecycle.
 
 ---
 
-## Problem & solution
+## What it does
 
-Modern AI applications collect consent at the UI layer (website, app, CMP), but downstream data infrastructure typically has no native consent signal. Once data lands in feature stores, training corpora, model registries, or inference paths, consent revocation often becomes a manual, delayed, or missing operation. This creates legal risk, governance gaps, and broken user trust.
+A user revokes consent once — via your CMP, UI, or API call. ConsentFlow:
 
-The failure mode is systemic: revocation is handled as a frontend concern, while AI pipelines are built as backend/data concerns. In practice, teams can revoke a toggle in UI and still train on stale personal data, serve inferences to users with revoked consent, and compute drift analytics using disallowed samples.
+1. **Writes** the revocation to PostgreSQL (authoritative store)
+2. **Invalidates** the Redis cache entry for that user+purpose
+3. **Publishes** a `consent.revoked` event to Apache Kafka
+4. **Enforces** the revocation at four gates in your AI pipeline:
 
-ConsentFlow closes this gap by operating as middleware between consent sources and AI pipeline execution points. It enforces consent during dataset registration, inference, training-quarantine workflows, and monitoring windows — with propagation via Kafka and full observability via OpenTelemetry + Grafana.
+| Gate | Layer | Enforcement |
+|------|-------|-------------|
+| **Dataset gate** | Data prep | Anonymizes revoked users' PII before MLflow registration |
+| **Training gate** | Model training | Quarantines in-flight MLflow runs via Kafka event |
+| **Inference gate** | Live serving | ASGI middleware returns 403 in <5 ms (Redis cache hit) |
+| **Drift monitor** | Monitoring | Flags revoked-user samples in Evidently drift windows |
 
 ---
 
-## Architecture overview
+## Architecture
 
-```text
-+-----------------------+
-| UI / Consent Source   |
-| (App / Web / CMP)     |
-+-----------+-----------+
-            |
-            | webhook (OneTrust-style revocation signal)
-            v
-+-------------------------------+
-| ConsentFlow Middleware        |
-| - FastAPI API                 |
-| - Consent SDK                 |
-| - Redis cache (TTL 60s)       |
-| - PostgreSQL source of truth  |
-| - Kafka producer/consumer     |
-+---------------+---------------+
-                |
-                | consent.revoked (Kafka topic)
-                v
-+---------------------------------------------+
-| Pipeline Enforcement Checkpoints            |
-| 1) Dataset Gate  (MLflow artifact + PII)    |
-| 2) Training Gate (Kafka -> quarantine tags) |
-| 3) Inference Gate (ASGI middleware)         |
-| 4) Drift Monitor  (Evidently wrapper)       |
-+-------------------+-------------------------+
-                    |
-                    v
-+------------------------------------+
-| AI Models                          |
-| - Training runs / Model registry   |
-| - Inference endpoints              |
-+-------------------+----------------+
-                    |
-                    v
-+----------------------------------------------+
-| Observability                                |
-| - OpenTelemetry spans -> OTel Collector      |
-| - Prometheus metrics endpoint                |
-| - Grafana dashboards                         |
-| - Audit trail API (/audit/trail)             |
-+----------------------------------------------+
+```
+User revokes consent
+        │
+        ▼
+POST /webhook/consent-revoke
+        │
+        ├─► PostgreSQL  (authoritative record)
+        ├─► Redis       (invalidate cache)
+        └─► Kafka       (consent.revoked event)
+                │
+                ├─► Dataset Gate   (Presidio PII scrub)
+                ├─► Training Gate  (MLflow quarantine tag)
+                ├─► Inference Gate (403 Forbidden)
+                └─► Drift Monitor  (severity-graded alert)
 ```
 
-**Component inventory:**
-
-| Component | Role |
-|-----------|------|
-| `FastAPI` | API layer, app lifespan, middleware, router orchestration |
-| `PostgreSQL` | Durable consent records + audit trail + users |
-| `Redis` | Low-latency consent read cache (`consent:{user_id}:{purpose}`, TTL 60s) |
-| `Kafka` | Revocation event propagation (`consent.revoked`) from webhook to downstream gates |
-| `MLflow` | Dataset gate artifacts/metrics and training quarantine tagging |
-| `Presidio` | PII detection and anonymization for revoked records in dataset gate |
-| `Evidently AI` | Drift report execution in monitoring gate wrapper |
-| `OpenTelemetry` | Span instrumentation of all gate decisions |
-| `Grafana` | Dashboarding over collector-exported Prometheus metrics |
+The Next.js dashboard provides a visual interface to manage users, consent records, the audit trail, and test the enforcement gates interactively.
 
 ---
 
-## Project structure
+## Quick Start
 
-```text
-.
-├── .env.example                          # Sample environment variables
-├── .gitignore                            # VCS ignore rules
-├── .python-version                       # Python version pin (3.12)
-├── Dockerfile                            # Application container image
-├── docker-compose.yml                    # Full local stack (app + infra + observability)
-├── otel-collector-config.yaml            # OTel collector pipelines/exporters
-├── pyproject.toml                        # Dependencies, tooling, metadata
-├── README.md                             # Project documentation
-├── uv.lock                               # Fully pinned dependency lockfile
-│
-├── consentflow/
-│   ├── __init__.py                       # Package marker
-│   ├── anonymizer.py                     # Presidio-based recursive PII anonymizer
-│   ├── dataset_gate.py                   # Consent-aware dataset registration gate
-│   ├── inference_gate.py                 # ASGI middleware for inference consent checks
-│   ├── langchain_gate.py                 # LangChain callback consent gate
-│   ├── mlflow_utils.py                   # MLflow run/model quarantine helper functions
-│   ├── monitoring_gate.py                # Consent-aware Evidently drift monitor
-│   ├── otel_dataset_gate.py              # OTel wrapper + audit logging for dataset gate
-│   ├── otel_inference_gate.py            # OTel wrapper + audit logging for inference decisions
-│   ├── otel_monitoring_gate.py           # OTel wrapper + audit logging for drift checks
-│   ├── otel_training_gate.py             # OTel wrapper + audit logging for quarantine actions
-│   ├── sdk.py                            # Shared consent lookup SDK (Redis -> Postgres fallback)
-│   ├── telemetry.py                      # OTel tracer configuration/factory
-│   ├── training_gate.py                  # Kafka consumer that quarantines MLflow runs
-│   │
-│   ├── migrations/
-│   │   ├── 001_init.sql                  # users + consent_records schema
-│   │   ├── 002_audit_log.sql             # audit_log schema and indexes
-│   │   └── 003_seed_demo_user.sql        # idempotent seed of demo user UUID
-│   │
-│   └── app/
-│       ├── __init__.py                   # Package marker
-│       ├── cache.py                      # Redis lifecycle + cache helpers
-│       ├── config.py                     # Pydantic settings + DSN helpers
-│       ├── db.py                         # asyncpg pool lifecycle + health check
-│       ├── kafka_producer.py             # Async revocation event producer
-│       ├── main.py                       # FastAPI app factory + lifespan + routes
-│       ├── models.py                     # Pydantic request/response contracts
-│       └── routers/
-│           ├── __init__.py               # Router package marker
-│           ├── audit.py                  # GET /audit/trail endpoint
-│           ├── consent.py                # /consent CRUD endpoints
-│           ├── infer.py                  # /infer/predict dummy model endpoint
-│           ├── users.py                  # POST /users + GET /users/{id} registration
-│           └── webhook.py                # /webhook/consent-revoke ingress
-│
-├── grafana/
-│   ├── dashboards/
-│   │   └── consentflow.json              # Provisioned ConsentFlow dashboard
-│   └── provisioning/
-│       ├── dashboards/
-│       │   └── dashboard.yaml            # Dashboard provider config
-│       └── datasources/
-│           └── prometheus.yaml           # Prometheus datasource config
-│
-└── tests/
-    ├── __init__.py                       # Tests package marker
-    ├── conftest.py                       # Shared fakes + ASGI test client
-    ├── test_consent.py                   # Consent endpoint unit tests
-    ├── test_health.py                    # Health endpoint smoke test
-    ├── test_monitoring_gate.py           # Drift monitor unit tests
-    ├── test_step3.py                     # Dataset gate integration-style tests
-    ├── test_step4.py                     # Inference gate tests
-    ├── test_step5.py                     # Training gate + mlflow_utils tests
-    └── test_step7.py                     # OTel wrappers + audit API tests
-```
+### Prerequisites
 
----
+- Docker + Docker Compose
+- Node.js 20+ (for the frontend)
 
-## Prerequisites
-
-| Requirement | Version | Notes |
-|-------------|---------|-------|
-| Python | `3.12+` | Pinned via `.python-version` |
-| Docker Engine | latest stable | Tested with images in `docker-compose.yml` |
-| Docker Compose | v2 (`docker compose`) | Not legacy `docker-compose` v1 |
-| `uv` (optional) | latest | For local non-Docker runs only |
-| PostgreSQL (optional) | `16` | Only if running without Docker |
-| Redis (optional) | `7` | Only if running without Docker |
-
-> **Mac / Apple Silicon (M1 / M2 / M3) users:** Docker Desktop for Mac supports all required images. However, some Confluent images are x86-only and run via Rosetta 2 emulation — see [Platform notes](#platform-notes-mac--apple-silicon) for a one-line fix.
-
----
-
-## Setup & installation
-
-**1. Clone the repository:**
+### 1. Clone and configure
 
 ```bash
-git clone https://github.com/Rishu7011/ConsentFlow-.git
-cd ConsentFlow-
-```
-
-**2. Copy and configure environment:**
-
-```bash
-# macOS / Linux
+git clone https://github.com/Rishu7011/ConsentFlow-
+cd ConsentFlow-/consentflow-backend
 cp .env.example .env
 
 # Windows (PowerShell)
@@ -393,6 +249,16 @@ curl -X POST http://localhost:8000/infer/predict \
 curl "http://localhost:8000/audit/trail?user_id=550e8400-e29b-41d4-a716-446655440000"
 ```
 
+**6. Launch the frontend dashboard:**
+
+```bash
+cd consentflow-frontend
+npm install
+npm run dev
+```
+
+Open http://localhost:3000 to view the dashboard.
+
 ---
 
 ## Environment variables
@@ -416,6 +282,7 @@ curl "http://localhost:8000/audit/trail?user_id=550e8400-e29b-41d4-a716-44665544
 | `OTEL_ENABLED` | Enable OTel SDK/exporter setup | `false` (disabled by default; set `true` in Docker env) | No |
 | `OTEL_ENDPOINT` | OTLP gRPC endpoint | `http://localhost:4317` | No |
 | `OTEL_SERVICE_NAME` | Service name in OTel resource attributes | `consentflow` | No |
+| `NEXT_PUBLIC_API_URL` | Backend URL for frontend | `http://localhost:8000` | No |
 
 ---
 
@@ -699,6 +566,31 @@ Valid `action_taken` values logged by the gates: `passed` · `blocked` · `quara
 
 ---
 
+### `GET /dashboard/stats`
+
+Returns aggregated metrics for the dashboard UI.
+
+**Response `200`:**
+```json
+{
+  "users": 150,
+  "granted": 342,
+  "blocked": 137,
+  "purposes": {
+    "analytics": 89,
+    "inference": 156,
+    "model_training": 45,
+    "pii": 52
+  },
+  "checks_24h_total": 1247,
+  "checks_24h_allowed": 1110,
+  "checks_24h_blocked": 137,
+  "checks_sparkline": [12, 45, 67, 89, 34, 56, 78, 23, 45, 67, 89, 12, 34, 56, 78, 90, 12, 34, 56, 78, 34, 56, 78, 90]
+}
+```
+
+---
+
 ## Consent enforcement pipeline
 
 ### 1. Dataset gate (`dataset_gate.py` + `otel_dataset_gate.py`)
@@ -841,7 +733,7 @@ Indexes: `idx_audit_log_user_id` · `idx_audit_log_event_time DESC` · `idx_audi
 | Grafana dashboard | http://localhost:3000 |
 | OTel Collector OTLP gRPC | `localhost:4317` |
 | OTel Collector OTLP HTTP | `localhost:4318` |
-| Prometheus scrape endpoint | http://localhost:8889/metrics |
+| Prometheus metrics | http://localhost:8889/metrics |
 | OTel Collector health | http://localhost:13133 |
 | Audit trail API | `GET /audit/trail` |
 
@@ -887,6 +779,69 @@ uv run pytest tests/test_step7.py          # OTel wrappers + audit API
 | `test_step5.py` | Training gate Kafka event quarantine flow + MLflow helper behavior |
 | `test_monitoring_gate.py` | Drift monitor alert semantics, severity thresholds, edge cases |
 | `test_step7.py` | OTel wrapper span attributes + audit trail API response shape |
+
+---
+
+## Frontend
+
+ConsentFlow includes a **Next.js 14 dashboard** for interactive consent management and monitoring.
+
+### Pages
+
+| Page | Route | Purpose |
+|------|-------|---------|
+| Landing | `/` | Marketing page with animated architecture diagram |
+| Dashboard | `/dashboard` | Live metrics, health status, recent audit events |
+| Users | `/users` | User registration and UUID lookup |
+| Consent | `/consent` | Grant/revoke consent, view consent matrix |
+| Audit | `/audit` | Full audit trail with filtering and detail drawer |
+| Webhook | `/webhook` | OneTrust-style webhook simulator |
+| Inference | `/infer` | Live test of the ConsentMiddleware gate |
+
+### Running the Frontend
+
+```bash
+cd consentflow-frontend
+npm install
+npm run dev
+```
+
+The dashboard will be available at **http://localhost:3000**.
+
+**Prerequisites:** FastAPI backend must be running on `localhost:8000`.
+
+### Frontend Architecture
+
+- **Framework:** Next.js 14 (App Router)
+- **Language:** TypeScript
+- **Styling:** Vanilla CSS with CSS variables
+- **State:** TanStack Query v5 (React Query)
+- **HTTP:** Axios with interceptors
+- **Animations:** Framer Motion + GSAP
+
+### API Proxy Pattern
+
+All frontend API calls go through Next.js API route proxies at `/api/*` to avoid CORS issues. The proxies forward requests to the FastAPI backend at `localhost:8000`.
+
+| Frontend Path | Proxies To |
+|---------------|------------|
+| `GET /api/health` | `GET /health` |
+| `GET /api/dashboard-stats` | `GET /dashboard/stats` |
+| `POST /api/users` | `POST /users` |
+| `GET /api/users/{id}` | `GET /users/{id}` |
+| `GET /api/consent` | `GET /consent` |
+| `POST /api/consent` | `POST /consent` |
+| `POST /api/consent/revoke` | `POST /consent/revoke` |
+| `GET /api/audit` | `GET /audit/trail` |
+| `POST /api/webhook` | `POST /webhook/consent-revoke` |
+| `POST /api/infer` | `POST /infer/predict` |
+
+### Cross-Page State
+
+The frontend uses `sessionStorage.active_user_id` to persist the current user UUID across pages:
+- Set when a user is registered or looked up
+- Read to pre-fill forms on Consent, Webhook, and Inference pages
+- Attached as `X-User-ID` header on every API call via Axios interceptor
 
 ---
 
