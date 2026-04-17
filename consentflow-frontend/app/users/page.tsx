@@ -102,13 +102,19 @@ export default function UsersPage() {
   const [searchQuery, setSearchQuery] = useState("");
 
   /* ────────── Fetch all users ────────── */
-  // NOTE: The backend has no GET /users list endpoint — only GET /users/{id}.
-  // We keep this stub to avoid breaking the table UI; it always returns empty.
   const fetchUsers = useCallback(async () => {
-    setLoadingUsers(false);
-    setTableError("Use 'Look Up User' above to search by UUID. The backend does not expose a user-list endpoint.");
-    setUsers([]);
-    setFilteredUsers([]);
+    setLoadingUsers(true);
+    setTableError(null);
+    try {
+      // Hits the Next.js GET /api/users proxy → FastAPI GET /users
+      const res = await api.get<User[]>("/users");
+      setUsers(res.data);
+    } catch (err) {
+      setTableError("Failed to fetch user list from backend.");
+      setUsers([]);
+    } finally {
+      setLoadingUsers(false);
+    }
   }, []);
 
   useEffect(() => { fetchUsers(); }, [fetchUsers]);

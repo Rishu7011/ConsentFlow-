@@ -5,7 +5,7 @@ import Link from 'next/link';
 import { motion } from 'framer-motion';
 import gsap from 'gsap';
 import { AnimatedBeam } from '@/components/magicui/animated-beam';
-import { UserX, ShieldCheck, Database, Network, Ban, LineChart, AlertTriangle } from 'lucide-react';
+import { UserX, ShieldCheck, Database, Network, Ban, LineChart, AlertTriangle, FileSearch } from 'lucide-react';
 import './css/landing.css';
 import Navbar from '@/components/layout/Navbar';
 
@@ -17,6 +17,7 @@ export default function Home() {
   const div4Ref = useRef<HTMLDivElement>(null);
   const div5Ref = useRef<HTMLDivElement>(null);
   const div6Ref = useRef<HTMLDivElement>(null);
+  const div7Ref = useRef<HTMLDivElement>(null);
 
   const handleMouseMove = (e: MouseEvent<HTMLDivElement>) => {
     const card = e.currentTarget;
@@ -108,7 +109,7 @@ export default function Home() {
             transition={{ duration: 0.7, ease: "easeOut" }}
           >
             <div className="stat">
-              <div className="stat-num"><span>4</span></div>
+              <div className="stat-num"><span>5</span></div>
               <div className="stat-label">Enforcement gates</div>
             </div>
             <div className="stat">
@@ -162,7 +163,7 @@ export default function Home() {
                 </div>
               </div>
 
-              {/* Four Gates */}
+              {/* Five Gates */}
               <div className="flex flex-col justify-center gap-6">
                 <div ref={div3Ref} className="flex items-center justify-center">
                   <div className="flow-node w-[160px] h-[130px] flex flex-col justify-center items-center">
@@ -195,14 +196,22 @@ export default function Home() {
                     <div className="flow-node-sub">Evidently alerts</div>
                   </div>
                 </div>
+                <div ref={div7Ref} className="flex items-center justify-center">
+                  <div className="flow-node w-[160px] h-[130px] flex flex-col justify-center items-center">
+                    <FileSearch className="w-8 h-8 mb-2 opacity-60" />
+                    <div className="flow-node-label">Policy Auditor</div>
+                    <div className="flow-node-sub">ToS scanning</div>
+                  </div>
+                </div>
               </div>
             </div>
 
             <AnimatedBeam containerRef={flowRef} fromRef={div1Ref} toRef={div2Ref} duration={3} gradientStartColor="#7c6dfa" gradientStopColor="#3ecfb2" label="webhook / API" />
             <AnimatedBeam containerRef={flowRef} fromRef={div2Ref} toRef={div3Ref} curvature={-70} endYOffset={-10} duration={3} gradientStartColor="#3ecfb2" gradientStopColor="#fa6d8a" label="Kafka event" />
-            <AnimatedBeam containerRef={flowRef} fromRef={div2Ref} toRef={div4Ref} curvature={-20} duration={3} gradientStartColor="#3ecfb2" gradientStopColor="#fa6d8a" label="Kafka event" />
-            <AnimatedBeam containerRef={flowRef} fromRef={div2Ref} toRef={div5Ref} curvature={20} duration={3} gradientStartColor="#3ecfb2" gradientStopColor="#fa6d8a" label="Kafka event" />
-            <AnimatedBeam containerRef={flowRef} fromRef={div2Ref} toRef={div6Ref} curvature={70} endYOffset={10} duration={3} gradientStartColor="#3ecfb2" gradientStopColor="#fa6d8a" label="Kafka event" />
+            <AnimatedBeam containerRef={flowRef} fromRef={div2Ref} toRef={div4Ref} curvature={-35} duration={3} gradientStartColor="#3ecfb2" gradientStopColor="#fa6d8a" label="Kafka event" />
+            <AnimatedBeam containerRef={flowRef} fromRef={div2Ref} toRef={div5Ref} curvature={0} duration={3} gradientStartColor="#3ecfb2" gradientStopColor="#fa6d8a" label="Kafka event" />
+            <AnimatedBeam containerRef={flowRef} fromRef={div2Ref} toRef={div6Ref} curvature={35} duration={3} gradientStartColor="#3ecfb2" gradientStopColor="#fa6d8a" label="Kafka event" />
+            <AnimatedBeam containerRef={flowRef} fromRef={div2Ref} toRef={div7Ref} curvature={70} endYOffset={10} duration={3} gradientStartColor="#3ecfb2" gradientStopColor="#fa6d8a" label="API hook" />
           </div>
 
           {/* GATES */}
@@ -213,7 +222,7 @@ export default function Home() {
             viewport={{ once: true }}
           >
             <div className="section-label">Architecture</div>
-            <div className="section-title">The four gates</div>
+            <div className="section-title">The five gates</div>
             <div className="section-sub">Every stage of your AI pipeline — enforced.</div>
           </motion.div>
 
@@ -254,6 +263,13 @@ export default function Home() {
               <div className="gate-title">Drift monitor</div>
               <div className="gate-desc">Tags every sample in Evidently drift windows with consent status. Emits severity-graded alerts — warning below 5 revoked samples, critical above.</div>
               <span className="gate-tag">Evidently AI · DriftAlert</span>
+            </motion.div>
+            <motion.div className="gate-card" onMouseMove={handleMouseMove} variants={fadeUpVariant}>
+              <div className="gate-icon" style={{ background: 'rgba(52,211,153,0.1)' }}>🛡️</div>
+              <div className="gate-num">Gate 05</div>
+              <div className="gate-title">Policy Auditor</div>
+              <div className="gate-desc">Scans AI plugin Terms of Service for consent bypass clauses before integration. Flags critical, high, medium, and low-severity findings with GDPR article references.</div>
+              <Link href="/policy" className="gate-tag" style={{ cursor: 'pointer', textDecoration: 'none' }}>Try it → /policy</Link>
             </motion.div>
           </motion.div>
 

@@ -17,7 +17,7 @@ A user revokes consent once — via your CMP, UI, or API call. ConsentFlow:
 1. **Writes** the revocation to PostgreSQL (authoritative store)
 2. **Invalidates** the Redis cache entry for that user+purpose
 3. **Publishes** a `consent.revoked` event to Apache Kafka
-4. **Enforces** the revocation at four gates in your AI pipeline:
+4. **Enforces** the revocation at five gates in your AI pipeline:
 
 | Gate | Layer | Enforcement |
 |------|-------|-------------|
@@ -25,6 +25,7 @@ A user revokes consent once — via your CMP, UI, or API call. ConsentFlow:
 | **Training gate** | Model training | Quarantines in-flight MLflow runs via Kafka event |
 | **Inference gate** | Live serving | ASGI middleware returns 403 in <5 ms (Redis cache hit) |
 | **Drift monitor** | Monitoring | Flags revoked-user samples in Evidently drift windows |
+| **Policy Auditor** | Compliance | Scans external AI plugin Terms of Service for bypass clauses via LLM |
 
 ---
 
@@ -43,7 +44,8 @@ POST /webhook/consent-revoke
                 ├─► Dataset Gate   (Presidio PII scrub)
                 ├─► Training Gate  (MLflow quarantine tag)
                 ├─► Inference Gate (403 Forbidden)
-                └─► Drift Monitor  (severity-graded alert)
+                ├─► Drift Monitor  (severity-graded alert)
+                └─► Policy Auditor (LLM ToS scanning + DB log)
 ```
 
 The Next.js dashboard provides a visual interface to manage users, consent records, the audit trail, and test the enforcement gates interactively.
@@ -249,7 +251,19 @@ curl -X POST http://localhost:8000/infer/predict \
 curl "http://localhost:8000/audit/trail?user_id=550e8400-e29b-41d4-a716-446655440000"
 ```
 
-**6. Launch the frontend dashboard:**
+**6. Try the Gate 05 Policy Auditor:**
+
+```bash
+curl -X POST http://localhost:8000/policy/scan \
+  -H "Content-Type: application/json" \
+  -d '{
+    "integration_name": "Test AI",
+    "policy_text": "We may use your data to train our AI models."
+  }'
+# Response 201: Overall risk level "critical", 1 finding
+```
+
+**7. Launch the frontend dashboard:**
 
 ```bash
 cd consentflow-frontend
@@ -282,6 +296,7 @@ Open http://localhost:3000 to view the dashboard.
 | `OTEL_ENABLED` | Enable OTel SDK/exporter setup | `false` (disabled by default; set `true` in Docker env) | No |
 | `OTEL_ENDPOINT` | OTLP gRPC endpoint | `http://localhost:4317` | No |
 | `OTEL_SERVICE_NAME` | Service name in OTel resource attributes | `consentflow` | No |
+| `ANTHROPIC_API_KEY` | Anthropic API key for Gate 05 ToS scanner | *(empty)* | Yes (for Gate 05) |
 | `NEXT_PUBLIC_API_URL` | Backend URL for frontend | `http://localhost:8000` | No |
 
 ---
@@ -768,6 +783,8 @@ uv run pytest tests/test_step4.py          # inference gate
 uv run pytest tests/test_step5.py          # training gate + mlflow_utils
 uv run pytest tests/test_monitoring_gate.py # drift monitor
 uv run pytest tests/test_step7.py          # OTel wrappers + audit API
+uv run pytest tests/test_policy_auditor.py # Gate 05 LLM policy logic
+uv run pytest tests/test_gate05_e2e.py     # Gate 05 E2E (I/O mocked)
 ```
 
 | Test file | What it covers |
@@ -779,6 +796,8 @@ uv run pytest tests/test_step7.py          # OTel wrappers + audit API
 | `test_step5.py` | Training gate Kafka event quarantine flow + MLflow helper behavior |
 | `test_monitoring_gate.py` | Drift monitor alert semantics, severity thresholds, edge cases |
 | `test_step7.py` | OTel wrapper span attributes + audit trail API response shape |
+| `test_policy_auditor.py` | Gate 05 ToS scan logic, LLM findings validation, URL fetch |
+| `test_gate05_e2e.py` | Full Gate 05 API + DB pipeline execution without live services |
 
 ---
 
@@ -797,6 +816,7 @@ ConsentFlow includes a **Next.js 14 dashboard** for interactive consent manageme
 | Audit | `/audit` | Full audit trail with filtering and detail drawer |
 | Webhook | `/webhook` | OneTrust-style webhook simulator |
 | Inference | `/infer` | Live test of the ConsentMiddleware gate |
+| Policy | `/policy` | Gate 05 — LLM-powered Terms of Service auditor |
 
 ### Running the Frontend
 
@@ -835,6 +855,8 @@ All frontend API calls go through Next.js API route proxies at `/api/*` to avoid
 | `GET /api/audit` | `GET /audit/trail` |
 | `POST /api/webhook` | `POST /webhook/consent-revoke` |
 | `POST /api/infer` | `POST /infer/predict` |
+| `POST /api/policy` | `POST /policy/scan` |
+| `GET /api/policy` | `GET /policy/scans` |
 
 ### Cross-Page State
 

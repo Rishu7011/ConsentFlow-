@@ -38,7 +38,9 @@ export default function Dashboard() {
     checks_24h_total: 0,
     checks_24h_allowed: 0,
     checks_24h_blocked: 0,
-    checks_sparkline: Array(24).fill(0)
+    checks_sparkline: Array(24).fill(0),
+    policy_scans_total: 0,
+    policy_scans_critical: 0,
   });
 
   const [sec, setSec] = useState(0);
@@ -188,6 +190,38 @@ export default function Dashboard() {
               accent="amber"
               secondaryText={<span>Redis cache hit rate <span style={{ color: 'var(--accent2)' }}>94%</span></span>}
             />
+            {/* Gate 05 — Policy Auditor */}
+            <div
+              className="metric-card"
+              onClick={() => router.push('/policy')}
+              style={{ cursor: 'pointer' }}
+              title="Go to Policy Auditor"
+            >
+              <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start' }}>
+                <div>
+                  <div style={{ fontSize: '11px', fontWeight: 500, color: 'var(--muted)', marginBottom: '6px', textTransform: 'uppercase', letterSpacing: '0.06em' }}>
+                    Policies Scanned
+                  </div>
+                  <div style={{ fontFamily: 'var(--font-display)', fontSize: '2rem', lineHeight: 1, color: 'var(--accent)' }}>
+                    {metrics.policy_scans_total.toLocaleString()}
+                  </div>
+                  {metrics.policy_scans_critical > 0 ? (
+                    <div style={{ marginTop: '6px', fontSize: '11px', color: 'var(--accent3)', fontWeight: 500 }}>
+                      {metrics.policy_scans_critical} critical risk
+                    </div>
+                  ) : (
+                    <div style={{ marginTop: '6px', fontSize: '11px', color: 'var(--muted2)' }}>
+                      No critical risks
+                    </div>
+                  )}
+                </div>
+                <div style={{ width: '34px', height: '34px', borderRadius: '10px', background: 'rgba(124,109,250,0.12)', display: 'flex', alignItems: 'center', justifyContent: 'center', flexShrink: 0 }}>
+                  <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="var(--accent)" strokeWidth="1.8">
+                    <path d="M12 3l7 4v5c0 4.5-3 8.7-7 10C8 20.7 5 16.5 5 12V7l7-4z"/>
+                  </svg>
+                </div>
+              </div>
+            </div>
           </div>
 
           {/* GATES ROW */}

@@ -15,6 +15,7 @@ from typing import Any, List, Optional
 from uuid import UUID
 
 import asyncpg
+import httpx
 from fastapi import APIRouter, HTTPException, Query, Request, status
 
 from consentflow.app.config import settings
@@ -99,17 +100,19 @@ async def post_policy_scan(
     db_pool = _get_pool(request)
     redis_client = _get_redis(request)
 
-    api_key: str | None = settings.anthropic_api_key
-    if not api_key:
+    # ── Ollama reachability check ──────────────────────────────────────────────
+    try:
+        async with httpx.AsyncClient(timeout=5.0) as client:
+            await client.get(f"{settings.ollama_base_url}/api/tags")
+    except Exception:
         raise HTTPException(
             status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
-            detail="ANTHROPIC_API_KEY is not configured on this server.",
+            detail="Ollama is not reachable at " + settings.ollama_base_url,
         )
 
     auditor = PolicyAuditor(
         db_pool=db_pool,
         redis_client=redis_client,
-        anthropic_api_key=api_key,
     )
 
     try:
@@ -120,11 +123,17 @@ async def post_policy_scan(
             status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
             detail=f"Could not fetch policy URL: {exc}",
         ) from exc
-    except PolicyAnalysisError as exc:
+    except (PolicyAnalysisError, ValueError) as exc:
         logger.error("PolicyAuditor analysis error: %s", exc)
         raise HTTPException(
             status_code=status.HTTP_502_BAD_GATEWAY,
             detail=f"LLM analysis failed: {exc}",
+        ) from exc
+    except httpx.HTTPError as exc:
+        logger.error("PolicyAuditor Ollama HTTP error: %s", exc)
+        raise HTTPException(
+            status_code=status.HTTP_502_BAD_GATEWAY,
+            detail=f"LLM service error: {exc}",
         ) from exc
     finally:
         await auditor._close()

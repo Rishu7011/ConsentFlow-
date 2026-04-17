@@ -20,6 +20,8 @@ class DashboardStatsResponse(BaseModel):
     checks_24h_allowed: int
     checks_24h_blocked: int
     checks_sparkline: list[int]
+    policy_scans_total: int = 0
+    policy_scans_critical: int = 0
 
 def _get_pool(request: Request) -> asyncpg.Pool:
     return request.app.state.db_pool
@@ -44,6 +46,10 @@ async def get_dashboard_stats(
     # Using inference gate specific checks
     checks_sql = "SELECT event_time, action_taken FROM audit_log WHERE event_time >= $1 AND gate_name = 'inference_gate'"
 
+    # Gate 05 — Policy Auditor
+    policy_scans_total_sql = "SELECT COUNT(*) FROM policy_scans"
+    policy_scans_critical_sql = "SELECT COUNT(*) FROM policy_scans WHERE overall_risk_level = 'critical'"
+
     async with pool.acquire() as conn:
         users = await conn.fetchval(users_sql)
         granted = await conn.fetchval(granted_sql)
@@ -51,6 +57,14 @@ async def get_dashboard_stats(
         
         purposes_rows = await conn.fetch(purposes_sql)
         checks_rows = await conn.fetch(checks_sql, twenty_four_hours_ago)
+
+        try:
+            policy_scans_total = await conn.fetchval(policy_scans_total_sql) or 0
+            policy_scans_critical = await conn.fetchval(policy_scans_critical_sql) or 0
+        except Exception:
+            # Table may not exist yet in older deployments
+            policy_scans_total = 0
+            policy_scans_critical = 0
 
     purposes = {row["purpose"]: row["count"] for row in purposes_rows}
     
@@ -75,5 +89,7 @@ async def get_dashboard_stats(
         checks_24h_total=checks_24h_total,
         checks_24h_allowed=checks_24h_allowed,
         checks_24h_blocked=checks_24h_blocked,
-        checks_sparkline=sparkline
+        checks_sparkline=sparkline,
+        policy_scans_total=policy_scans_total,
+        policy_scans_critical=policy_scans_critical,
     )

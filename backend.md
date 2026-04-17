@@ -1,12 +1,12 @@
 # ConsentFlow — Backend Reference
 
-> **Version:** 0.2.0 | **Python:** ≥ 3.12 | **Framework:** FastAPI 0.115+
+> **Version:** 0.3.0 | **Python:** ≥ 3.12 | **Framework:** FastAPI 0.115+
 
 ---
 
 ## 1. Project Overview
 
-ConsentFlow is a Python middleware layer that enforces user consent revocation across an AI pipeline in real time. When a user revokes consent through a UI, CMP (e.g. OneTrust), or direct API call, ConsentFlow immediately writes the revocation to PostgreSQL, invalidates the Redis cache, and publishes a `consent.revoked` event to Apache Kafka. Four enforcement gates — dataset, inference, training, and drift monitoring — subscribe to this signal and block or anonymize the user's data at every stage of the AI lifecycle, from raw dataset registration through to live inference and post-deployment drift monitoring.
+ConsentFlow is a Python middleware layer that enforces user consent revocation across an AI pipeline in real time. When a user revokes consent through a UI, CMP (e.g. OneTrust), or direct API call, ConsentFlow immediately writes the revocation to PostgreSQL, invalidates the Redis cache, and publishes a `consent.revoked` event to Apache Kafka. Five enforcement gates — dataset, inference, training, drift monitoring, and policy auditing — subscribe to this signal and block or anonymize the user's data at every stage of the AI lifecycle. Gate 05 (Policy Auditor) additionally uses Claude to scan third-party Terms of Service for consent bypass clauses before any integration goes live.
 
 ---
 
@@ -25,6 +25,8 @@ ConsentFlow is a Python middleware layer that enforces user consent revocation a
 | MLflow | Experiment tracking / quarantine | ≥ 2.13 |
 | Microsoft Presidio | PII detection and anonymization | ≥ 2.2 |
 | Evidently AI | Data drift monitoring | ≥ 0.4 |
+| Anthropic Claude | LLM policy analysis (Gate 05) | claude-sonnet-4-20250514 |
+| httpx | Async HTTP client (policy URL fetch) | ≥ 0.27 |
 | OpenTelemetry | Distributed tracing | SDK ≥ 1.24 |
 | Grafana | Metrics/trace visualization | 10.4.2 |
 | Pydantic v2 | Request/response validation | ≥ 2.7 |
@@ -42,7 +44,7 @@ consentflow-backend/
 ├── Dockerfile                  # Multi-stage production image
 ├── docker-compose.yml          # Full stack: Postgres, Redis, Kafka, OTel, Grafana
 ├── otel-collector-config.yaml  # OTel Collector pipeline config
-├── pyproject.toml              # Project metadata + dependencies (uv/hatch)
+├── pyproject.toml              # Project metadata + dependencies (uv/hatch) v0.3.0
 ├── seed_db.py                  # One-shot seeder script (optional)
 ├── grafana/
 │   ├── provisioning/           # Auto-provision datasources and dashboards
@@ -51,10 +53,11 @@ consentflow-backend/
 │   ├── __init__.py
 │   ├── sdk.py                  # is_user_consented() — shared consent check
 │   ├── anonymizer.py           # Presidio PII detection & masking
-│   ├── dataset_gate.py         # Gate 1: per-record consent filter + MLflow
-│   ├── training_gate.py        # Gate 2: Kafka consumer, MLflow quarantine
-│   ├── inference_gate.py       # Gate 3: ASGI ConsentMiddleware (fail-closed)
-│   ├── monitoring_gate.py      # Gate 4: Evidently drift + revoked-sample alerts
+│   ├── dataset_gate.py         # Gate 01: per-record consent filter + MLflow
+│   ├── training_gate.py        # Gate 02: Kafka consumer, MLflow quarantine
+│   ├── inference_gate.py       # Gate 03: ASGI ConsentMiddleware (fail-closed)
+│   ├── monitoring_gate.py      # Gate 04: Evidently drift + revoked-sample alerts
+│   ├── policy_auditor.py       # Gate 05: Claude LLM ToS scanner
 │   ├── langchain_gate.py       # LangChain callback adapter for inference gate
 │   ├── mlflow_utils.py         # MLflow run search + quarantine tag helpers
 │   ├── telemetry.py            # OTel tracer factory (configure_otel/get_tracer)
@@ -65,10 +68,11 @@ consentflow-backend/
 │   ├── migrations/
 │   │   ├── 001_init.sql        # users + consent_records tables
 │   │   ├── 002_audit_log.sql   # audit_log table
-│   │   └── 003_seed_demo_user.sql # Inserts demo UUID 550e8400-…
+│   │   ├── 003_seed_demo_user.sql # Inserts demo UUID 550e8400-…
+│   │   └── 004_policy_scans.sql   # Gate 05 policy_scans table
 │   └── app/
 │       ├── __init__.py
-│       ├── main.py             # FastAPI app factory + lifespan
+│       ├── main.py             # FastAPI app factory + lifespan (7 routers)
 │       ├── config.py           # Settings (pydantic-settings, reads .env)
 │       ├── db.py               # asyncpg pool lifecycle
 │       ├── cache.py            # Redis helpers (get/set/invalidate)
@@ -81,16 +85,19 @@ consentflow-backend/
 │           ├── webhook.py      # POST /webhook/consent-revoke
 │           ├── infer.py        # POST /infer/predict (demo endpoint)
 │           ├── audit.py        # GET /audit/trail
-│           └── dashboard.py   # GET /dashboard/stats
+│           ├── dashboard.py    # GET /dashboard/stats
+│           └── policy.py       # POST /policy/scan, GET /policy/scans, GET /policy/scans/{id}
 └── tests/
-    ├── conftest.py             # Shared pytest fixtures
+    ├── conftest.py             # Shared pytest fixtures (FakePool, FakeRedis, FakeConnection)
     ├── test_health.py          # Health endpoint
     ├── test_consent.py         # Consent CRUD + cache
     ├── test_step3.py           # Dataset gate
     ├── test_step4.py           # Inference gate middleware
     ├── test_step5.py           # Training gate Kafka consumer
     ├── test_step7.py           # OTel wrappers + audit trail
-    └── test_monitoring_gate.py # Drift monitor
+    ├── test_monitoring_gate.py # Drift monitor
+    ├── test_policy_auditor.py  # Gate 05 unit tests (analyze_policy, fetch errors, JSON parse)
+    └── test_gate05_e2e.py      # Gate 05 end-to-end smoke tests (all I/O mocked)
 ```
 
 ---
@@ -118,6 +125,7 @@ All variables are read by `consentflow/app/config.py` via `pydantic-settings`. T
 | `OTEL_ENABLED` | Enable OpenTelemetry tracing | `false` | No |
 | `OTEL_ENDPOINT` | OTLP gRPC exporter endpoint | `http://localhost:4317` | No |
 | `OTEL_SERVICE_NAME` | OTel `service.name` resource attribute | `consentflow` | No |
+| `ANTHROPIC_API_KEY` | Anthropic Claude API key (Gate 05 only) | `None` | **Yes** for Gate 05 |
 
 > **Docker Compose note:** Inside the `app` container, `KAFKA_BROKER_URL` is automatically set to `kafka:9092`. Outside Docker, use `localhost:29092`.
 
@@ -180,6 +188,25 @@ CREATE INDEX idx_audit_log_gate_name  ON audit_log (gate_name);
 INSERT INTO users (id, email)
 VALUES ('550e8400-e29b-41d4-a716-446655440000', 'demo@consentflow.dev')
 ON CONFLICT (id) DO NOTHING;
+```
+
+### 5.5 `policy_scans` (migration 004)
+```sql
+CREATE TABLE policy_scans (
+    id                UUID        PRIMARY KEY DEFAULT gen_random_uuid(),
+    scanned_at        TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+    integration_name  TEXT        NOT NULL,
+    policy_url        TEXT,
+    policy_text_hash  TEXT        NOT NULL,  -- SHA-256 of the policy text
+    overall_risk_level TEXT       NOT NULL CHECK (overall_risk_level IN ('low','medium','high','critical')),
+    findings_count    INTEGER     NOT NULL DEFAULT 0,
+    findings          JSONB       NOT NULL DEFAULT '[]',
+    raw_summary       TEXT        NOT NULL DEFAULT ''
+);
+
+CREATE INDEX idx_policy_scans_scanned_at      ON policy_scans (scanned_at DESC);
+CREATE INDEX idx_policy_scans_risk_level      ON policy_scans (overall_risk_level);
+CREATE INDEX idx_policy_scans_integration     ON policy_scans (integration_name);
 ```
 
 ---
@@ -541,9 +568,101 @@ Base URL (local): `http://localhost:8000`
 
 `checks_sparkline` is an array of 24 integers — one per hour slot (oldest → newest).
 
+New fields added in v0.3.0:
+- `policy_scans_total` — total rows in `policy_scans` table
+- `policy_scans_critical` — rows where `overall_risk_level = 'critical'`
+
+Both default to `0` if the `policy_scans` table does not exist (graceful degradation).
+
 | Code | Meaning |
 |------|---------|
 | 200 | Success |
+
+---
+
+### 6.14 `POST /policy/scan`
+
+**Purpose:** Fetch and analyse an AI plugin's privacy policy using Claude. Detects seven categories of consent-bypass clauses.
+
+**Requires:** `ANTHROPIC_API_KEY` set in `.env` (returns 503 if missing).
+
+**Request body:**
+| Field | Type | Required | Description |
+|-------|------|----------|-------------|
+| `integration_name` | `string` (1–256 chars) | Yes | Human-readable name of the plugin/integration |
+| `policy_url` | `string` (URL) | One of these | Publicly reachable URL of the privacy policy |
+| `policy_text` | `string` | One of these | Raw policy text to scan |
+
+At least one of `policy_url` or `policy_text` must be supplied (enforced by model_validator).
+
+**Response 201:**
+```json
+{
+  "scan_id": "uuid",
+  "integration_name": "OpenAI Plugin",
+  "overall_risk_level": "critical",
+  "findings": [
+    {
+      "id": "finding_1",
+      "severity": "critical",
+      "category": "Training on Inputs",
+      "clause_excerpt": "We may use your inputs to improve our models...",
+      "explanation": "Training on user inputs without explicit opt-out violates GDPR Art. 6",
+      "article_reference": "GDPR Article 6(1)"
+    }
+  ],
+  "findings_count": 1,
+  "raw_summary": "One critical clause detected...",
+  "scanned_at": "2024-07-15T10:30:00Z",
+  "policy_url": "https://example.com/privacy"
+}
+```
+
+| Code | Meaning |
+|------|---------|
+| 201 | Scan complete |
+| 422 | Could not fetch policy URL |
+| 502 | LLM analysis failed |
+| 503 | `ANTHROPIC_API_KEY` not configured |
+
+---
+
+### 6.15 `GET /policy/scans`
+
+**Purpose:** Paginated list of past policy scan summaries, newest first.
+
+**Query parameters:**
+| Param | Type | Default | Description |
+|-------|------|---------|-------------|
+| `limit` | `int` [1–100] | `20` | Max rows |
+| `offset` | `int` | `0` | Pagination offset |
+| `risk_level` | `string` | `null` | Filter: `low`\|`medium`\|`high`\|`critical` |
+
+**Response 200:** Array of `PolicyScanListItem`:
+```json
+[
+  {
+    "scan_id": "uuid",
+    "integration_name": "OpenAI Plugin",
+    "overall_risk_level": "critical",
+    "findings_count": 3,
+    "scanned_at": "2024-07-15T10:30:00Z"
+  }
+]
+```
+
+---
+
+### 6.16 `GET /policy/scans/{scan_id}`
+
+**Purpose:** Retrieve the full result of a single scan by its UUID.
+
+**Response 200:** Full `PolicyScanResult` (same shape as POST /policy/scan response).
+
+| Code | Meaning |
+|------|---------|
+| 200 | Found |
+| 404 | Scan not found |
 
 ---
 
@@ -623,6 +742,7 @@ app.add_middleware(
 | Inference gate | `inference_gate.check` |
 | Training gate | `training_gate.check` |
 | Monitoring gate | `monitoring_gate.check` |
+| Policy Auditor | writes `gate_name="policy_auditor"` to `audit_log` (no OTel span in v0.3.0) |
 
 **Common span attributes:** `gate_name`, `user_id`, `consent_status`, `action_taken`, `purpose`
 
@@ -633,15 +753,16 @@ app.add_middleware(
 | HTTP Code | Cause |
 |-----------|-------|
 | 200 | Success |
-| 201 | Resource created (POST /users) |
+| 201 | Resource created (POST /users, POST /policy/scan) |
 | 207 | Partial success (webhook: DB OK, Kafka failed) |
 | 400 | Missing `user_id` on protected `/infer` routes |
 | 403 | Consent revoked — inference blocked |
-| 404 | Resource not found (user, consent record) |
+| 404 | Resource not found (user, consent record, policy scan) |
 | 409 | Email already registered |
-| 422 | Pydantic validation error (invalid field type/format) |
+| 422 | Pydantic validation error (invalid field type/format); or policy URL unreachable |
 | 500 | Database error |
-| 503 | Consent service unavailable (fail-closed on infra error) |
+| 502 | LLM analysis failed (Gate 05 — Anthropic API error) |
+| 503 | Consent service unavailable (fail-closed on infra error); or `ANTHROPIC_API_KEY` not set |
 
 ---
 

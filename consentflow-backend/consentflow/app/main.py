@@ -152,16 +152,26 @@ def create_app() -> FastAPI:
         response_model=HealthResponse,
         tags=["observability"],
         summary="Liveness check",
-        description="Returns the health of Postgres and Redis connections.",
+        description="Returns the health of Postgres, Redis, Kafka, and OTel.",
     )
     async def health(request: Request) -> HealthResponse:
         pg_status = await check_postgres(request.app.state.db_pool)
         redis_status = await check_redis(request.app.state.redis_client)
-        overall = "ok" if pg_status == "ok" and redis_status == "ok" else "degraded"
+        
+        # Simple Kafka check based on connection state
+        # (aiokafka doesn't have a simple ping, but we check if the object exists)
+        kafka_status = "ok" if request.app.state.kafka_producer else "error"
+        
+        # OTel is based on configuration
+        otel_status = "ok" if getattr(settings, "otel_enabled", False) else "disabled"
+        
+        overall = "ok" if pg_status == "ok" and redis_status == "ok" and kafka_status == "ok" else "degraded"
         return HealthResponse(
             status=overall,
             postgres=pg_status,
             redis=redis_status,
+            kafka=kafka_status,
+            otel=otel_status,
         )
 
     return app

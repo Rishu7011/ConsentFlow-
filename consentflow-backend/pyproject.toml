@@ -1,6 +1,6 @@
 [project]
 name = "consentflow"
-version = "0.2.0"
+version = "0.3.0"
 description = "Consent-enforcement middleware for AI pipelines"
 readme = "README.md"
 requires-python = ">=3.12"
@@ -40,6 +40,10 @@ dependencies = [
     # OpenTelemetry SDK + OTLP gRPC exporter for trace instrumentation.
     "opentelemetry-sdk>=1.24.0",
     "opentelemetry-exporter-otlp-proto-grpc>=1.24.0",
+    # ── Gate 05: Policy Auditor ────────────────────────────────────────────────
+    # Uses local Ollama LLM via OpenAI-compatible endpoint (no new SDK needed).
+    # HTTP client for fetching policy documents by URL and calling Ollama.
+    "httpx>=0.27.0",
 ]
 
 [dependency-groups]

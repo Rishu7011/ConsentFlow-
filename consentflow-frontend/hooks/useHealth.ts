@@ -16,7 +16,11 @@ export function useHealth(refetchInterval = 30000) {
       return res.data;
     },
     refetchInterval,
-    // Don't throw — return degraded state on error
-    retry: 1,
+    // Retry 3 times with exponential back-off before marking as error
+    retry: 3,
+    retryDelay: (attempt) => Math.min(1000 * 2 ** attempt, 10_000),
+    // Keep the last successful response visible while a refetch is in progress
+    // or after a transient failure — prevents sidebar going all-red on a single blip
+    placeholderData: (prev) => prev,
   });
 }

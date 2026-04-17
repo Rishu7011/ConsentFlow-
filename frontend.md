@@ -22,7 +22,7 @@
 
 ---
 
-## 2. All 7 Pages
+## 2. All 8 Pages
 
 ### 2.1 Landing Page — `/`
 
@@ -74,8 +74,43 @@
 
 **Key implementation notes:**
 - `sec` counter ticks every second to show "Updated Xs ago" in the topbar badge
-- Gate cards (Dataset 342, Training 7, Inference 137, Drift 3) show **static** demo numbers — only the metric cards and audit table pull live data
+- Gate cards (Dataset, Training, Inference, Drift) show **static** demo numbers — only the metric cards and audit table pull live data
+- **Gate 05 card** (shield icon, "Policies Scanned") shows live `policy_scans_total`; if `policy_scans_critical > 0`, sub-label renders in red. Clicking navigates to `/policy`
 - `sessionStorage('active_user_id')` is read by the Axios interceptor but not set on this page
+
+---
+
+### 2.8 Policy Auditor — `/policy`
+
+**Route:** `app/policy/page.tsx`  
+**Status:** ✅ Built
+
+**Purpose:** Gate 05 — LLM-powered ToS / privacy policy scanner. Accepts a URL or pasted text, calls `POST /policy/scan`, renders a risk-level banner and per-finding expandable cards. Lists past scans via `GET /policy/scans`.
+
+**API calls:**
+| Method | Endpoint | When | Purpose |
+|--------|----------|------|---------|
+| POST | `/api/policy` (scan) | Scan button click | Submit policy for analysis |
+| GET | `/api/policy` (scans) | Page load | Load scan history |
+
+**Hooks used:** `usePolicyAuditor` (`hooks/usePolicyAuditor.ts`) — `useScanPolicy` mutation + `usePolicyScans` query
+
+**Components used:**
+- `Sidebar`
+- Risk level banner (green=low, amber=medium, red=high, red+pulse=critical)
+- Per-finding cards: severity badge, clause excerpt, plain-English explanation, GDPR/CCPA article ref
+- Scan history table
+
+**Error states:**
+- 503 → "ANTHROPIC_API_KEY not configured on this server"
+- 422 → "Could not fetch policy URL" (unreachable URL)
+- 502 → "LLM analysis failed" (Claude API error)
+- Empty history → "No scans yet" placeholder
+
+**Key implementation notes:**
+- `integration_name` field required; `policy_url` OR `policy_text` required (validated before submit)
+- `overall_risk_level` is the highest severity across all findings
+- Each finding has: `severity` (low/medium/high/critical), `category`, `clause_excerpt`, `explanation`, `article_reference`
 
 ---
 
@@ -162,8 +197,8 @@
 - Loading state → skeleton rows
 
 **Key implementation notes:**
-- Gate name filter values: `dataset_gate`, `inference_gate`, `training_gate`, `monitoring_gate`
-- `action_taken` values from the DB: `passed`, `blocked`, `anonymized`, `quarantined`, `alerted`
+- Gate name filter values: `dataset_gate`, `inference_gate`, `training_gate`, `monitoring_gate`, `policy_auditor`
+- `action_taken` values from the DB: `passed`, `blocked`, `anonymized`, `quarantined`, `alerted`, `scanned`
 - `metadata` JSONB parsed and rendered as a code block when non-null
 - `trace_id` is displayed as a hex string; no deep-link implemented yet
 
@@ -321,6 +356,45 @@ interface DashboardStatsResponse {
   checks_24h_allowed: number;
   checks_24h_blocked: number;
   checks_sparkline: number[];        // 24 integers, index 0 = oldest hour
+  // Gate 05 — added v0.3.0
+  policy_scans_total: number;
+  policy_scans_critical: number;
+}
+
+// POST /policy/scan — Gate 05
+interface PolicyFinding {
+  id: string;
+  severity: "low" | "medium" | "high" | "critical";
+  category: string;
+  clause_excerpt: string;
+  explanation: string;
+  article_reference: string;
+}
+
+interface PolicyScanRequest {
+  integration_name: string;
+  policy_url?: string;
+  policy_text?: string;  // at least one of policy_url or policy_text required
+}
+
+interface PolicyScanResult {
+  scan_id: string;           // UUID
+  integration_name: string;
+  overall_risk_level: "low" | "medium" | "high" | "critical";
+  findings: PolicyFinding[];
+  findings_count: number;
+  raw_summary: string;
+  scanned_at: string;        // ISO-8601
+  policy_url: string | null;
+}
+
+// GET /policy/scans
+interface PolicyScanListItem {
+  scan_id: string;           // UUID
+  integration_name: string;
+  overall_risk_level: string;
+  findings_count: number;
+  scanned_at: string;        // ISO-8601
 }
 ```
 
@@ -405,6 +479,7 @@ interface DashboardStatsResponse {
 | Dashboard | `/api/dashboard-stats` | On health poll | Called inside `checkHealth()` |
 | Audit | `/api/audit` | Manual (filters) | TanStack Query, no auto-refetch |
 | Users | `/api/users` | Manual | TanStack Query, no auto-refetch |
+| Policy | `/api/policy` (GET scans) | On mount | TanStack Query, no auto-refetch |
 
 > **Design decision:** Only the dashboard auto-polls. All other pages fetch on mount and on manual interaction (filter change, form submit, refresh button).
 
@@ -456,7 +531,8 @@ Defined in `app/globals.css` and per-page CSS files (`app/dashboard/css/dashboar
 8. **Audit page** — `app/audit/page.tsx`
 9. **Webhook page** — `app/webhook/page.tsx`
 10. **Infer page** — `app/infer/page.tsx`
-11. **API proxy routes** — `app/api/*/route.ts` for each backend endpoint
+11. **Policy Auditor page** — `app/policy/page.tsx`, `hooks/usePolicyAuditor.ts`
+12. **API proxy routes** — `app/api/*/route.ts` for each backend endpoint (including `/api/policy`)
 
 ---
 
@@ -465,12 +541,13 @@ Defined in `app/globals.css` and per-page CSS files (`app/dashboard/css/dashboar
 Use this sequence to demo ConsentFlow end-to-end from the UI:
 
 1. **Open** `http://localhost:3001` — landing page with animated flow diagram
-2. **Navigate** to `/dashboard` — show live metrics (0 blocked initially)
+2. **Navigate** to `/dashboard` — show live metrics (users, consents, blocked, policies scanned)
 3. **Navigate** to `/users` — show demo user, click "Set as active"
 4. **Navigate** to `/infer` — UUID auto-filled; hit "Fire /infer/predict" → **green Allowed**
 5. **Navigate** to `/webhook` — pre-filled payload; hit "Simulate Revocation" → propagated ✓
 6. **Navigate** back to `/infer` — hit "Fire /infer/predict" → **red Blocked (403)**
 7. **Navigate** to `/dashboard` — `blocked` counter incremented; audit table shows new block event
 8. **Navigate** to `/audit` — full trail with `action_taken: blocked`, `gate_name: inference_gate`
+9. **Navigate** to `/policy` — paste a real AI plugin ToS URL; click "Scan for Risks" → Claude returns findings in ~5 s; risk banner shows **CRITICAL** with clause excerpts and GDPR article refs
 
-Total: ~90 seconds. Key moment: step 4 → 6 shows the revocation propagating in real time.
+Total: ~2 minutes. Key moments: step 4 → 6 shows revocation propagating in real time; step 9 shows LLM-powered policy bypass detection.

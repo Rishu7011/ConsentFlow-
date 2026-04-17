@@ -53,7 +53,7 @@ Every file in the project with a detailed entry covering purpose, public API, da
 
 ### `pyproject.toml`
 **What it does:** Project metadata, dependency declarations, tool config (ruff, mypy, pytest).  
-**Key data:** Version `0.2.0`, requires Python ≥ 3.12. See Section 2 of `backend.md` for full dependency list.  
+**Key data:** Version `0.3.0`, requires Python ≥ 3.12. Runtime deps include `anthropic≥0.26.0` and `httpx≥0.27.0` (Gate 05).  
 **Behavioral details:** `asyncio_mode = "auto"` set for pytest; testpaths = `["tests"]`
 
 ---
@@ -228,7 +228,7 @@ class ConsentMiddleware(BaseHTTPMiddleware):
 ---
 
 ### `consentflow/monitoring_gate.py`
-**What it does:** Gate 4 — consent-aware Evidently drift monitor. Tags samples with consent status and fires severity-graded alerts for revoked-user samples.
+**What it does:** Gate 04 — consent-aware Evidently drift monitor. Tags samples with consent status and fires severity-graded alerts for revoked-user samples.
 
 **Public API:**
 ```python
@@ -267,6 +267,43 @@ class DriftCheckResult:
 - Evidently imported lazily (not needed when `run_evidently=False`)
 
 **Dependencies:** `sdk.py`, `evidently`, `pandas`
+
+---
+
+### `consentflow/policy_auditor.py`
+**What it does:** Gate 05 — LLM-powered privacy policy / Terms of Service scanner. Fetches a policy document (by URL or raw text), calls Claude claude-sonnet-4-20250514 with a structured system prompt, and returns a list of consent-bypass findings with severity, clause excerpt, plain-English explanation, and GDPR/CCPA article references. Every scan is persisted to `policy_scans` and logged to `audit_log`.
+
+**Public API:**
+```python
+class PolicyAuditor:
+    def __init__(self, db_pool, redis_client, anthropic_api_key: str): ...
+    async def fetch_policy(self, url: str) -> str                           # raises PolicyFetchError
+    async def analyze_policy(
+        self, text: str, integration_name: str
+    ) -> tuple[list[dict], str, str]                                        # findings, summary, risk_level
+    async def scan(
+        self, request: PolicyScanRequest, pool, redis_client
+    ) -> dict                                                               # full PolicyScanResult dict
+
+class PolicyFetchError(Exception): ...
+```
+
+**Bypass categories detected (7):**
+1. Training on Inputs
+2. Third-Party Sharing
+3. Data Retention Overrides
+4. Weak Jurisdiction Clauses
+5. Shadow Profiling
+6. Downstream Consent Signal Overrides
+7. Retroactive Policy Changes
+
+**Behavioral details:**
+- Fail-closed: malformed LLM JSON → returns single `"Analysis Failure"` finding with `severity="critical"`
+- `policy_text_hash` is SHA-256(policy text); stored for future dedup/caching
+- Two asyncpg `execute()` calls per scan: `INSERT INTO policy_scans`, `INSERT INTO audit_log`
+- `audit_log` uses `gate_name="policy_auditor"`, `action_taken="scanned"`
+
+**Dependencies:** `anthropic`, `httpx`, `app/models.py`, `asyncpg`
 
 ---
 
@@ -391,7 +428,7 @@ app = create_app()          # module-level singleton
 - Shutdown (reverse): Kafka producer → Redis client → Postgres pool
 - CORS allowed origins: `http://localhost:3000`, `http://localhost:3001`
 - `ConsentMiddleware` installed on `protected_prefixes=["/infer"]`
-- All 6 routers registered: users, consent, webhook, infer, audit, dashboard
+- All 7 routers registered: users, consent, webhook, infer, audit, dashboard, policy
 
 **Dependencies:** All routers, `db.py`, `cache.py`, `kafka_producer.py`, `models.py`, `config.py`, `inference_gate.py`
 
@@ -405,9 +442,9 @@ app = create_app()          # module-level singleton
 settings = Settings()       # module-level singleton
 ```
 
-**Key data structures:** `Settings` class with `postgres_dsn`, `asyncpg_dsn`, `redis_url` as computed properties.
+**Key data structures:** `Settings` class with `postgres_dsn`, `asyncpg_dsn`, `redis_url` as computed properties. Includes `anthropic_api_key: str | None = None` for Gate 05.
 
-**Behavioral details:** Reads `.env` file (case-insensitive). All variables have defaults — app starts without a `.env` file using development defaults.
+**Behavioral details:** Reads `.env` file (case-insensitive). All variables have defaults — app starts without a `.env` file using development defaults. Gate 05 is disabled gracefully when `anthropic_api_key` is unset.
 
 ---
 
@@ -488,7 +525,16 @@ UserListRecord: id, email, created_at, consents (int), status (str)
 HealthResponse: status, postgres, redis
 AuditLogEntry: id, event_time, user_id, gate_name, action_taken, consent_status, purpose?, metadata?, trace_id?
 AuditTrailResponse: entries (list[AuditLogEntry]), total (int)
+
+# Gate 05 — added v0.3.0
+PolicyFinding: id, severity, category, clause_excerpt, explanation, article_reference
+PolicyScanRequest: integration_name, policy_url?, policy_text?  [model_validator: one required]
+PolicyScanResult: scan_id, integration_name, overall_risk_level, findings, findings_count, raw_summary, scanned_at, policy_url
+PolicyScanListItem: scan_id, integration_name, overall_risk_level, findings_count, scanned_at
 ```
+
+**`DashboardStatsResponse` fields (v0.3.0):**  
+`users`, `granted`, `blocked`, `purposes`, `checks_24h_{total,allowed,blocked}`, `checks_sparkline`, `policy_scans_total` (default 0), `policy_scans_critical` (default 0)
 
 **Behavioral details:** All response models use `model_config = {"from_attributes": True}` for asyncpg row compatibility.
 
@@ -579,12 +625,31 @@ WebhookRevokeResponse: status, user_id, purpose, kafka_published, warning?
 **Local Pydantic model:**
 ```
 DashboardStatsResponse: users, granted, blocked, purposes, checks_24h_total,
-                        checks_24h_allowed, checks_24h_blocked, checks_sparkline
+                        checks_24h_allowed, checks_24h_blocked, checks_sparkline,
+                        policy_scans_total (default 0), policy_scans_critical (default 0)
 ```
 
-**Behavioral details:** Sparkline is 24-element array bucketed by hour (index 0 = 24 hours ago, index 23 = now). Checks query filters `audit_log` where `gate_name='inference_gate'` and `event_time >= NOW()-24h`.
+**Behavioral details:** Sparkline is 24-element array bucketed by hour (index 0 = 24 hours ago, index 23 = now). Gate 05 counts queried live from `policy_scans`; wrapped in `try/except` so missing table returns `0` gracefully.
 
 **Dependencies:** `asyncpg`
+
+---
+
+### `consentflow/app/routers/policy.py`
+**What it does:** Gate 05 — REST endpoints for policy scanning.
+
+**Endpoints:**
+- `POST /policy/scan` → `PolicyScanResult` (201)
+- `GET /policy/scans` → `list[PolicyScanListItem]` (paginated)
+- `GET /policy/scans/{scan_id}` → `PolicyScanResult`
+
+**Behavioral details:**
+- Instantiates `PolicyAuditor` with `settings.anthropic_api_key`; returns 503 if key missing
+- `POST /policy/scan` accepts `PolicyScanRequest`; calls `PolicyAuditor.scan()`, serializes `PolicyScanResult`
+- List endpoint supports `limit`, `offset`, `risk_level` query params
+- Raises 404 if `scan_id` not found; raises 422 if URL unreachable (re-raised from `PolicyFetchError`)
+
+**Dependencies:** `policy_auditor.py`, `models.py`, `config.py`, `asyncpg`
 
 ---
 
@@ -599,12 +664,15 @@ Creates `audit_log` table with JSONB `metadata` column and three indexes (user_i
 ### `migrations/003_seed_demo_user.sql`
 Inserts demo user `550e8400-e29b-41d4-a716-446655440000` / `demo@consentflow.dev`. Idempotent via `ON CONFLICT (id) DO NOTHING`.
 
+### `migrations/004_policy_scans.sql`
+Creates `policy_scans` table for Gate 05 scan persistence. Columns: `id`, `scanned_at`, `integration_name`, `policy_url`, `policy_text_hash`, `overall_risk_level`, `findings_count`, `findings` (JSONB), `raw_summary`. Three indexes: `scanned_at DESC`, `overall_risk_level`, `integration_name`. Idempotent.
+
 ---
 
 ## Tests
 
 ### `tests/conftest.py`
-Shared pytest fixtures: test FastAPI app, test DB pool, mock Redis/Kafka clients. Sets `asyncio_mode="auto"`.
+Shared pytest fixtures. `FakeConnection` — asyncpg stub with `fetchrow/fetch/execute/fetchval`. `FakePool` — asyncpg pool stub (context manager). `FakeRedis` — in-memory Redis stub. `client` fixture — `AsyncClient` with fakes injected into `app.state`. Sets `asyncio_mode="auto"`.
 
 ### `tests/test_health.py`
 Tests `GET /health` returns 200 and expected JSON shape.
@@ -627,6 +695,22 @@ Tests OTel gate wrappers and `GET /audit/trail` endpoint with filter combination
 ### `tests/test_monitoring_gate.py`
 Tests `ConsentAwareDriftMonitor`: consent tagging, severity thresholds, alert generation, `run_consent_aware_drift_check` with `run_evidently=False`.
 
+### `tests/test_policy_auditor.py`
+Gate 05 unit tests. Five focused tests:
+- `test_scan_with_text` — happy path raw-text scan, asserts full result shape
+- `test_scan_url_fetch_error` — httpx `ConnectError` → `PolicyFetchError` raised
+- `test_analyze_bad_json` — malformed LLM response → single `"Analysis Failure"` critical finding
+- `test_overall_risk_level_critical` — three critical findings → level surfaced as `"critical"`
+- `test_post_scan_endpoint` — FastAPI `TestClient` with mocked `.scan()`; asserts HTTP 201
+
+### `tests/test_gate05_e2e.py`
+Gate 05 end-to-end smoke tests (all I/O mocked). Five tests:
+- `test_full_scan_flow_url_mode` — URL mode: httpx → LLM → DB; asserts exactly 2 `execute()` calls (policy_scans + audit_log), `overall_risk_level=="critical"`, 2 findings
+- `test_full_scan_flow_paste_mode` — paste mode: asserts HTTP client is never called, 0 findings, `risk_level=="low"`
+- `test_api_endpoint_post_scan` — FastAPI `TestClient`; mocked `.scan()`; asserts HTTP 201 + valid UUID
+- `test_api_endpoint_get_scans` — `GET /policy/scans`; `ScanListPool` returns 3 rows; asserts HTTP 200 + list length 3
+- `test_risk_level_propagation` — three sub-assertions: correct LLM label passed through, absent key defaults to `"low"`, full `scan()` end-to-end propagates `"critical"`
+
 ---
 
 ## Frontend: `consentflow-frontend/`
@@ -645,8 +729,12 @@ Tests `ConsentAwareDriftMonitor`: consent tagging, severity thresholds, alert ge
 **Dependencies:** `components/layout/Navbar`, `components/magicui/animated-beam`, `framer-motion`, `gsap`
 
 ### `app/dashboard/page.tsx`
-**What it does:** Dashboard with live metrics from `GET /dashboard/stats`, audit table from `useAuditTrail`, 10 s health polling.  
+**What it does:** Dashboard with live metrics from `GET /dashboard/stats` (including `policy_scans_total` and `policy_scans_critical`), audit table from `useAuditTrail`, 10 s health polling, and Gate 05 "Policies Scanned" metric card with shield icon.  
 **Dependencies:** `components/dashboard/MetricCard`, `components/dashboard/HealthWidget`, `hooks/useAuditTrail`, `lib/axios`
+
+### `app/policy/page.tsx`
+**What it does:** Gate 05 — Policy Auditor UI. URL / paste-text input, risk-level banner (color-coded: low=green, medium=amber, high=red, critical=red+pulse), per-finding expandable cards (clause excerpt, explanation, GDPR/CCPA article ref), scan history table.  
+**Dependencies:** `Sidebar`, `hooks/usePolicyAuditor`
 
 ### `app/users/page.tsx`
 **What it does:** User registry with search, register form (POST /users/register), detail view, sessionStorage active user setter.  
@@ -670,7 +758,7 @@ Tests `ConsentAwareDriftMonitor`: consent tagging, severity thresholds, alert ge
 
 ### `app/api/*/route.ts`
 **What it does:** Next.js API route handlers that proxy each backend endpoint to avoid browser CORS issues.  
-**Available routes:** `/api/health`, `/api/audit`, `/api/consent`, `/api/users`, `/api/infer`, `/api/webhook`, `/api/dashboard-stats`
+**Available routes:** `/api/health`, `/api/audit`, `/api/consent`, `/api/users`, `/api/infer`, `/api/webhook`, `/api/dashboard-stats`, `/api/policy`
 
 ### `lib/axios.ts`
 **What it does:** Singleton Axios instance with `baseURL='/api'`, 10 s timeout, request interceptor (attaches `X-User-ID` from sessionStorage), response interceptor (dispatches `api:error` custom event on 500/503).
@@ -689,6 +777,18 @@ Tests `ConsentAwareDriftMonitor`: consent tagging, severity thresholds, alert ge
 
 ### `types/api.ts`
 **What it does:** Legacy Axios instance using `NEXT_PUBLIC_API_URL` directly (superseded by `lib/axios.ts` with proxy). Contains early TypeScript type definitions.
+
+### `hooks/usePolicyAuditor.ts`
+**What it does:** TanStack Query hooks for Gate 05.  
+- `useScanPolicy()` — mutation for `POST /api/policy` (scan submission)
+- `usePolicyScans()` — query for `GET /api/policy` (scan history)
+- `usePolicyScan(scanId)` — query for `GET /api/policy/{scanId}` (detail view)
+
+### `app/api/policy/route.ts`
+**What it does:** Next.js API route handler proxying all Gate 05 requests to FastAPI.  
+- `POST /api/policy` → `POST http://localhost:8000/policy/scan`
+- `GET /api/policy` → `GET http://localhost:8000/policy/scans`
+- `GET /api/policy/{scanId}` → `GET http://localhost:8000/policy/scans/{scanId}`
 
 ### `next.config.ts`
 **What it does:** Next.js configuration (currently default/empty — no rewrites or custom headers configured).

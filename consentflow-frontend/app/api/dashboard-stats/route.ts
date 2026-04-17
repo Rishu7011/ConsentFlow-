@@ -2,7 +2,7 @@ import { NextResponse } from 'next/server';
 
 export async function GET() {
   try {
-    const backendUrl = process.env.API_URL || 'http://localhost:8000';
+    const backendUrl = process.env.NEXT_PUBLIC_API_URL || 'http://localhost:8000';
     console.log(`[Proxy] Fetching dashboard stats from ${backendUrl}/dashboard/stats`);
 
     const res = await fetch(`${backendUrl}/dashboard/stats`, {

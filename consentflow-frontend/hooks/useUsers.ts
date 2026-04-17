@@ -30,3 +30,23 @@ export function useRegisterUser() {
     },
   });
 }
+
+// GET /users — fetch list of all users with consent summaries
+export interface UserListRecord {
+  id: string;
+  email: string;
+  created_at: string;
+  consents: number;
+  status: 'active' | 'revoked' | 'pending';
+}
+
+export function useUsers() {
+  return useQuery<UserListRecord[]>({
+    queryKey: ['users'],
+    queryFn: async () => {
+      const res = await api.get<UserListRecord[]>('/users');
+      return res.data;
+    },
+    staleTime: 10000,
+  });
+}

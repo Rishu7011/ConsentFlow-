@@ -42,10 +42,11 @@ class Settings(BaseSettings):
     otel_endpoint: str = "http://localhost:4317"  # OTLP gRPC
     otel_service_name: str = "consentflow"
 
-    # ── Gate 05: Policy Auditor ────────────────────────────────────────────────
-    # Set ANTHROPIC_API_KEY in .env (or docker-compose env) to enable policy scanning.
-    # Defaults to None so all existing tests remain unaffected.
-    anthropic_api_key: str | None = None
+    # ── Gate 05: Policy Auditor (Ollama local LLM) ────────────────────────────
+    # Ollama OpenAI-compatible endpoint. Override in .env or docker-compose env.
+    # Docker users: set OLLAMA_BASE_URL=http://host.docker.internal:11434
+    ollama_base_url: str = "http://localhost:11434"
+    ollama_model: str = "gemma2:2b"
 
     @property
     def postgres_dsn(self) -> str:

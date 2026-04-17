@@ -120,6 +120,12 @@ services:
       # ── Kafka (internal broker address for container-to-container traffic) ──
       KAFKA_BROKER_URL: kafka:9092
       KAFKA_TOPIC_REVOKE: ${KAFKA_TOPIC_REVOKE:-consent.revoked}
+      # ── Gate 05: Policy Auditor — Ollama on host machine ─────────────────────
+      # host.docker.internal resolves to the Docker host IP inside containers.
+      OLLAMA_BASE_URL: ${OLLAMA_BASE_URL:-http://host.docker.internal:11434}
+      OLLAMA_MODEL: ${OLLAMA_MODEL:-gemma2:2b}
+      # ── Step 7: OpenTelemetry ────────────────────────────────────────────────
+      OTEL_ENABLED: "true"
     ports:
       - "8000:8000"
     healthcheck:
@@ -166,7 +172,7 @@ services:
       - ./grafana/provisioning:/etc/grafana/provisioning:ro
       - ./grafana/dashboards:/etc/grafana/dashboards:ro
     ports:
-      - "3000:3000"
+      - "3002:3000"
     healthcheck:
       test: ["CMD-SHELL", "wget --quiet --tries=1 --spider http://localhost:3000/api/health || exit 1"]
       interval: 10s

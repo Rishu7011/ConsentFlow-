@@ -91,6 +91,8 @@ class HealthResponse(BaseModel):
     status: str = "ok"
     postgres: str
     redis: str
+    kafka: Optional[str] = None
+    otel: Optional[str] = None
 
 
 # ── Step 7: Audit log models ───────────────────────────────────────────────────
@@ -132,14 +134,14 @@ class PolicyFinding(BaseModel):
     category: str = Field(
         ..., description="Finding category, e.g. 'data_retention', 'third_party_sharing'"
     )
-    clause_excerpt: str = Field(
-        ..., description="Verbatim excerpt of the offending clause from the policy text"
+    clause_excerpt: Optional[str] = Field(
+        default=None, description="Verbatim excerpt of the offending clause from the policy text"
     )
-    explanation: str = Field(
-        ..., description="Plain-English explanation of why this clause is a red flag"
+    explanation: Optional[str] = Field(
+        default=None, description="Plain-English explanation of why this clause is a red flag"
     )
-    article_reference: str = Field(
-        default="",
+    article_reference: Optional[str] = Field(
+        default=None,
         description="GDPR / CCPA article or regulation reference (e.g. 'GDPR Art. 17')",
     )
 
