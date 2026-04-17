@@ -35,6 +35,7 @@ from consentflow.app.routers import infer as infer_router
 from consentflow.app.routers import audit as audit_router
 from consentflow.app.routers import users as users_router
 from consentflow.app.routers import dashboard as dashboard_router
+from consentflow.app.routers.policy import router as policy_router
 from consentflow.inference_gate import ConsentMiddleware
 
 
@@ -143,6 +144,7 @@ def create_app() -> FastAPI:
     app.include_router(infer_router.router)
     app.include_router(audit_router.router)   # prefix="/audit" (Step 7)
     app.include_router(dashboard_router.router)
+    app.include_router(policy_router)          # prefix="/policy" (Gate 05)
 
     # ── Health endpoint ───────────────────────────────────────────────────────
     @app.get(

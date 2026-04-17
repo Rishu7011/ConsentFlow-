@@ -2,9 +2,10 @@ from __future__ import annotations
 
 from datetime import datetime
 from enum import Enum
+from typing import List, Literal, Optional
 from uuid import UUID
 
-from pydantic import BaseModel, EmailStr, Field, model_validator
+from pydantic import BaseModel, EmailStr, Field, HttpUrl, model_validator
 
 
 class ConsentStatus(str, Enum):
@@ -116,3 +117,86 @@ class AuditTrailResponse(BaseModel):
 
     entries: list[AuditLogEntry]
     total: int
+
+
+# ── Gate 05: Policy Auditor models ────────────────────────────────────────────
+
+
+class PolicyFinding(BaseModel):
+    """A single red-flag finding extracted from a policy document."""
+
+    id: str = Field(..., description="Unique identifier for this finding within the scan")
+    severity: Literal["low", "medium", "high", "critical"] = Field(
+        ..., description="How severe this clause is from a consent perspective"
+    )
+    category: str = Field(
+        ..., description="Finding category, e.g. 'data_retention', 'third_party_sharing'"
+    )
+    clause_excerpt: str = Field(
+        ..., description="Verbatim excerpt of the offending clause from the policy text"
+    )
+    explanation: str = Field(
+        ..., description="Plain-English explanation of why this clause is a red flag"
+    )
+    article_reference: str = Field(
+        default="",
+        description="GDPR / CCPA article or regulation reference (e.g. 'GDPR Art. 17')",
+    )
+
+
+class PolicyScanRequest(BaseModel):
+    """Payload for POST /policy-auditor/scan — supply a URL, raw text, or both."""
+
+    integration_name: str = Field(
+        ..., min_length=1, max_length=256,
+        description="Human-readable name of the plugin or integration to scan",
+    )
+    policy_url: Optional[HttpUrl] = Field(
+        default=None,
+        description="Publicly reachable URL of the privacy policy or ToS document",
+    )
+    policy_text: Optional[str] = Field(
+        default=None,
+        description="Raw policy text to scan (used when the URL is not publicly accessible)",
+    )
+
+    @model_validator(mode="after")
+    def _require_url_or_text(self) -> "PolicyScanRequest":
+        if self.policy_url is None and (self.policy_text is None or self.policy_text.strip() == ""):
+            raise ValueError(
+                "At least one of 'policy_url' or 'policy_text' must be provided."
+            )
+        return self
+
+
+class PolicyScanResult(BaseModel):
+    """Full scan result returned from POST /policy-auditor/scan."""
+
+    scan_id: UUID = Field(..., description="UUID of the persisted policy_scans row")
+    integration_name: str
+    overall_risk_level: Literal["low", "medium", "high", "critical"] = Field(
+        ..., description="Aggregate risk verdict for the scanned document"
+    )
+    findings: List[PolicyFinding] = Field(
+        default_factory=list, description="All red-flag findings detected in the document"
+    )
+    findings_count: int = Field(..., description="Total number of findings (matches len(findings))")
+    raw_summary: str = Field(..., description="LLM-generated plain-English summary of the scan")
+    scanned_at: datetime = Field(..., description="Timestamp when the scan was completed")
+    policy_url: Optional[str] = Field(
+        default=None, description="Source URL that was scanned, if one was supplied"
+    )
+
+    model_config = {"from_attributes": True}
+
+
+class PolicyScanListItem(BaseModel):
+    """Lightweight row returned from GET /policy-auditor/scans (list view)."""
+
+    scan_id: UUID
+    integration_name: str
+    overall_risk_level: str
+    findings_count: int
+    scanned_at: datetime
+
+    model_config = {"from_attributes": True}

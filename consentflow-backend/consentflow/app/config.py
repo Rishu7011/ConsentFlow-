@@ -42,6 +42,11 @@ class Settings(BaseSettings):
     otel_endpoint: str = "http://localhost:4317"  # OTLP gRPC
     otel_service_name: str = "consentflow"
 
+    # ── Gate 05: Policy Auditor ────────────────────────────────────────────────
+    # Set ANTHROPIC_API_KEY in .env (or docker-compose env) to enable policy scanning.
+    # Defaults to None so all existing tests remain unaffected.
+    anthropic_api_key: str | None = None
+
     @property
     def postgres_dsn(self) -> str:
         return (
