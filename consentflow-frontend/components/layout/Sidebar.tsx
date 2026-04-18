@@ -59,10 +59,10 @@ export default function Sidebar() {
 
     return (
         <aside className="sidebar">
-            <div className="logo" ref={logoRef}>
+            <Link href={"/"} className="logo" ref={logoRef}>
                 <div className="logo-mark">CF</div>
                 <span className="logo-text">ConsentFlow</span>
-            </div>
+            </Link>
 
             <nav className="nav" ref={navRef}>
                 <div className="nav-section">Main</div>
