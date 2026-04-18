@@ -27,7 +27,7 @@ const MotionLink = motion.create ? motion.create(Link) : (motion as any)(Link);
 
 export default function Sidebar() {
     const pathname = usePathname();
-    const logoRef = useRef<HTMLDivElement>(null);
+    const logoRef = useRef<HTMLAnchorElement>(null);
     const navRef = useRef<HTMLElement>(null);
 
     const handleMouseEnter = (e: React.MouseEvent<HTMLAnchorElement>) => {
