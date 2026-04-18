@@ -294,7 +294,10 @@ export default function Home() {
             }}
           >
             {[
+              { name: 'Next.js', icon: 'nextdotjs' },
+              { name: 'Tailwind CSS', icon: 'tailwindcss' },
               { name: 'FastAPI', icon: 'https://imgs.search.brave.com/bntF6Zso0YzhcVWJvRYhdd-WOiWyaTdcRO_p_ME8GzM/rs:fit:860:0:0:0/g:ce/aHR0cHM6Ly9jZG4u/d29ybGR2ZWN0b3Js/b2dvLmNvbS9sb2dv/cy9mYXN0YXBpLTEu/c3Zn' },
+              { name: 'Ollama', icon: 'ollama' },
               { name: 'PostgreSQL', icon: 'https://imgs.search.brave.com/SXTc07vWsRbq8PSKqZGmxWKnVHkv6eUenPVMV9n21Lo/rs:fit:860:0:0:0/g:ce/aHR0cHM6Ly91cGxv/YWQud2lraW1lZGlh/Lm9yZy93aWtpcGVk/aWEvY29tbW9ucy90/aHVtYi8yLzI5L1Bv/c3RncmVzcWxfZWxl/cGhhbnQuc3ZnLzI1/MHB4LVBvc3RncmVz/cWxfZWxlcGhhbnQu/c3ZnLnBuZw' },
               { name: 'Redis', icon: 'https://imgs.search.brave.com/WrNB3wKrgB_GlCyJFtnyFYZ8vF5RNY_Iy7bIyiM5cRs/rs:fit:860:0:0:0/g:ce/aHR0cHM6Ly9pbWcu/aWNvbnM4LmNvbS9l/eHRlcm5hbC10YWwt/cmV2aXZvLXRyaXRv/bmUtdGFsLXJldml2/by8xMjAwL2V4dGVy/bmFsLXJlZGlzLWFu/LWluLW1lbW9yeS1k/YXRhLXN0cnVjdHVy/ZS1wcm9qZWN0LWlt/cGxlbWVudGluZy1h/LWRpc3RyaWJ1dGVk/LWxvZ28tdHJpdG9u/ZS10YWwtcmV2aXZv/LmpwZw' },
               { name: 'Apache Kafka', icon: 'https://imgs.search.brave.com/ic9KgpkbckRZBbotLC_108aSCy2gZ2KQpGlqTI9ydrc/rs:fit:860:0:0:0/g:ce/aHR0cHM6Ly91cGxv/YWQud2lraW1lZGlh/Lm9yZy93aWtpcGVk/aWEvY29tbW9ucy90/aHVtYi8wLzAxL0Fw/YWNoZV9LYWZrYV9s/b2dvLnN2Zy8yNTBw/eC1BcGFjaGVfS2Fm/a2FfbG9nby5zdmcu/cG5n' },
